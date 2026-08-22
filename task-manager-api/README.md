@@ -1,13 +1,55 @@
 # task-manager-api
 
-API de Task Manager em Python/Flask usada como entrada do desafio `refactor-arch`. Diferente dos outros projetos, este já possui alguma separação de camadas (`models/`, `routes/`, `services/`, `utils/`), mas ainda contém problemas arquiteturais e de qualidade.
+API de Task Manager em Python/Flask + SQLAlchemy. Projeto de entrada do desafio
+`refactor-arch`, já refatorado para o padrão MVC pela skill.
+
+Este era o projeto "parcialmente organizado": tinha `models/`, `routes/`,
+`services/` e `utils/`, mas sem camada de controllers — as rotas acumulavam
+validação, acesso ao ORM, regra de negócio e serialização.
 
 ## Como rodar
 
 ```bash
-pip install -r requirements.txt
-python seed.py
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # Linux/macOS: .venv/bin/pip
+cp .env.example .env                            # opcional em desenvolvimento
+python seed.py                                  # rode antes do primeiro boot
 python app.py
 ```
 
-A aplicação sobe em `http://localhost:5000`. O `seed.py` popula o banco SQLite (`tasks.db`) com usuários, categorias e tasks de exemplo — **rode-o antes do primeiro boot**, caso contrário os endpoints vão retornar listas vazias.
+A aplicação sobe em `http://127.0.0.1:5000`. O banco fica em
+`instance/tasks.db`. Usuários do seed: `joao@email.com` / `1234`,
+`maria@email.com` / `abcd`, `pedro@email.com` / `pass`.
+
+## Estrutura
+
+```
+app.py                  entry point
+seed.py                 carga inicial (senhas com hash)
+src/
+├── app.py              composition root: create_app()
+├── config/             settings (env) e constantes de domínio
+├── infra/              instância do SQLAlchemy
+├── models/             task, user, category — entidade + acesso a dados
+├── services/           task, user, category, report, notification
+├── controllers/        orquestração por caso de uso
+├── views/              mapeamento rota → controller
+├── middlewares/        error handler, exceções de domínio, validadores
+└── utils/              datas (sem API deprecated) e helpers de cálculo
+```
+
+## Endpoints
+
+`GET /` · `GET /health` · `GET|POST /tasks` · `GET /tasks/search` ·
+`GET /tasks/stats` · `GET|PUT|DELETE /tasks/<id>` · `GET|POST /users` ·
+`GET|PUT|DELETE /users/<id>` · `GET /users/<id>/tasks` · `POST /login` ·
+`GET /reports/summary` · `GET /reports/user/<id>` · `GET|POST /categories` ·
+`PUT|DELETE /categories/<id>`
+
+Na refatoração: o campo `password` saiu de todas as respostas, o hash passou a
+ser pbkdf2 com salt e o token do login é assinado de verdade. Ver
+[`reports/audit-project-3.md`](../reports/audit-project-3.md).
+
+## A skill
+
+`.claude/skills/refactor-arch/` — invocação: `claude "/refactor-arch"`
