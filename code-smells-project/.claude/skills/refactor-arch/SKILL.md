@@ -92,8 +92,10 @@ Passos:
    Se não bater, **volte ao passo 1** — a varredura foi superficial, não relaxe o
    critério.
 7. Imprima o relatório no formato de `references/report-template.md` e salve em
-   `reports/audit-<nome-do-projeto>.md` (crie `reports/` se não existir). Salvar o
-   relatório é permitido antes da confirmação; nenhum arquivo-fonte pode ser tocado.
+   `reports/`, criando o diretório se não existir. Se já houver um `reports/` com
+   convenção de nome estabelecida (ex.: `audit-project-1.md`), siga a convenção
+   existente; caso contrário use `audit-<nome-do-projeto>.md`. Salvar o relatório é
+   permitido antes da confirmação; nenhum arquivo-fonte pode ser tocado.
 
 Encerre a fase com:
 

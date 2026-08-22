@@ -1,7 +1,8 @@
 # Template do Relatório de Auditoria
 
 Referência da **Fase 2**. Este é o formato exato do relatório — impresso no
-terminal e salvo em `reports/audit-<nome-do-projeto>.md`.
+terminal e salvo em `reports/` — seguindo a convenção de nome que já existir no
+diretório (ex.: `audit-project-1.md`) ou, se não houver, `audit-<nome-do-projeto>.md`.
 
 ## Regras de preenchimento
 
