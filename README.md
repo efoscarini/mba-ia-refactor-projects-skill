@@ -17,81 +17,110 @@ do repositório — dois Python/Flask e um Node.js/Express.
 
 ## A) Análise Manual
 
-Antes de escrever a skill eu li o código dos três projetos na mão. O que mais
-saltou aos olhos:
+Antes de escrever uma linha da skill eu li os três projetos na mão, anotando o
+que doía. A ideia não era achar tudo — era entender que *tipos* de problema a
+skill ia precisar reconhecer.
 
 ### `code-smells-project` (Python/Flask — API de e-commerce)
 
-- **[CRITICAL] Dá pra rodar SQL arbitrário pela API.** O `POST /admin/query`
-  (`app.py:59-78`) pega o campo `sql` do corpo e executa. Sem autenticação. Do
-  lado dele tem um `/admin/reset-db` que apaga as 4 tabelas.
-- **[CRITICAL] SQL montado com `+` em todo lugar.** As 19 queries do `models.py`
-  concatenam string. A pior é o login (`models.py:109-111`), que joga e-mail e
-  senha direto no `WHERE` — bypass de autenticação clássico.
+Comecei por esse. São 4 arquivos e 780 linhas; o `app.py` parece inofensivo até
+você rolar até o fim.
+
+- **[CRITICAL] `POST /admin/query` executa SQL arbitrário** (`app.py:59-78`).
+  Pega o campo `sql` do corpo, manda pro banco e dá `commit` se for escrita. Sem
+  autenticação. Do lado dele mora `/admin/reset-db`, que apaga as 4 tabelas —
+  também aberto. Meu palpite é que nasceu como atalho de debug e ninguém tirou.
+- **[CRITICAL] SQL montado com `+` em 19 lugares do `models.py`.** A pior é o
+  login (`models.py:109-111`), que joga e-mail e senha crus dentro do `WHERE` —
+  dá pra entrar como qualquer um com uma tautologia no campo de e-mail. As
+  outras 18 concatenam ids via `str()`: menos explorável, mesma doença.
 - **[CRITICAL] Senha em texto plano, e a API devolve.** O seed grava `123456`
-  cru, e o `to_dict` do usuário inclui o campo `senha` — que sai no
-  `GET /usuarios`. Não precisa nem invadir o banco.
-- **[CRITICAL] `models.py` é um arquivo só pra tudo.** 314 linhas com SQL, regra
-  de negócio, cálculo de desconto e serialização dos 4 domínios juntos.
-- **[MEDIUM] N+1 de três níveis.** `get_todos_pedidos` consulta os itens de cada
-  pedido e depois o nome do produto de cada item, um por um.
-- **[MEDIUM] `try/except` copiado em 17 handlers**, todos devolvendo `str(e)` pro
-  cliente — vaza mensagem interna do SQLite.
-- **[MEDIUM] Validação divergiu entre POST e PUT.** O PUT de produto esqueceu de
-  validar tamanho do nome e categoria. Dá pra gravar por PUT o que o POST recusa.
-- **[LOW] 17 `print` como log**, dois deles imprimindo e-mail de usuário.
-- **[LOW] Faixas de desconto soltas no meio da função** (`10000`, `0.1`, `5000`…).
-- **[LOW] `import sqlite3` e `import os` que ninguém usa.**
+  como está e o `to_dict` do usuário inclui o campo `senha`. `GET /usuarios`
+  entrega a lista de senhas pra quem pedir. Não precisa nem invadir o banco.
+- **[MEDIUM] O mesmo `try/except Exception as e` em 17 handlers**, todos
+  devolvendo `str(e)` no corpo — o cliente recebe mensagem interna do SQLite com
+  nome de tabela e coluna.
+- **[CRITICAL] `models.py` faz tudo.** 314 linhas com SQL, regra de negócio,
+  cálculo de desconto e serialização dos 4 domínios embolados. Esse é o arquivo
+  que me convenceu de que a skill precisava de um playbook de "quebrar por
+  camada e por domínio", não só de uma lista de smells.
+- **[MEDIUM] N+1 de três níveis em `get_todos_pedidos`:** os pedidos, depois os
+  itens de cada pedido, depois o nome do produto de cada item, um `execute` por
+  vez. 50 pedidos de 4 itens dão ~250 queries numa rota só.
+- **[MEDIUM] POST e PUT de produto divergiram.** Os dois validam, mas o PUT
+  esqueceu tamanho de nome e categoria. Dá pra gravar por PUT o que o POST
+  recusa — validação copiada e depois corrigida só de um lado.
+- **[LOW] 17 `print` fazendo papel de log** (sem contar os dois `"=" * 50` de
+  enfeite no boot). Dois imprimem e-mail de usuário.
+- **[LOW] Faixas de desconto como literais soltos** no meio do cálculo:
+  `10000`/`0.1`, `5000`/`0.05`, `1000`/`0.02`.
+- **[LOW]** `import sqlite3` no `models.py` e `import os` no `database.py`, os
+  dois sem uso.
 
 ### `ecommerce-api-legacy` (Node.js/Express — LMS com checkout)
 
-- **[CRITICAL] Credenciais de produção no `utils.js`.** Senha de banco, usuário
-  SMTP e uma chave `pk_live_` de gateway de pagamento, literais, versionadas.
-- **[CRITICAL] Número do cartão no log.** A linha `AppManager.js:45` imprime o
-  cartão completo junto com a chave do gateway.
-- **[CRITICAL] Criptografia caseira.** O `badCrypto()` concatena base64 10 mil
-  vezes e corta em 10 caracteres. Sem salt. É pior que não ter hash, porque
-  parece que tem.
-- **[HIGH] Callback hell de 5 níveis no checkout,** sem transação. Se o insert de
-  pagamento falhar, a matrícula já ficou gravada sozinha.
-- **[HIGH] O delete de usuário admite o próprio bug.** A resposta literalmente
-  diz *"as matrículas e pagamentos ficaram sujos no banco"*. E ficam mesmo — as
-  tabelas foram criadas sem nenhuma FK.
+Bem menor — 3 arquivos, 180 linhas — e bem pior por linha.
+
+- **[CRITICAL] Credenciais de produção literais no `utils.js:1-7`:** senha de
+  banco, usuário SMTP e uma chave de gateway com prefixo `pk_live_`. O nome da
+  variável diz `prod`. Está versionado.
+- **[CRITICAL] O número do cartão vai pro log.** `AppManager.js:45` imprime o
+  PAN completo do request junto com a chave do gateway, na mesma linha.
+- **[CRITICAL] Criptografia caseira.** `badCrypto()` concatena 10 mil vezes os 2
+  primeiros caracteres do base64 da senha e devolve os 10 primeiros do
+  resultado. Sem salt, determinístico, espaço de saída minúsculo. É pior que não
+  ter hash nenhum, porque parece que tem.
+- **[HIGH] Callback hell de 5 níveis no checkout, sem transação.** Se o insert
+  do pagamento falhar, a matrícula já ficou gravada sozinha e ninguém desfaz.
+- **[HIGH] O delete de usuário admite o próprio bug** — a resposta literalmente
+  diz que *"as matrículas e pagamentos ficaram sujos no banco"*. E ficam mesmo:
+  as tabelas foram criadas sem uma FK sequer.
 - **[MEDIUM] Relatório financeiro com N+1 de dois níveis** e contadores manuais
-  (`coursesPending--`) pra saber a hora de responder. A ordem do resultado
-  depende de qual callback termina primeiro.
-- **[MEDIUM] Erro ignorado em 4 callbacks.** Recebem `err` e nunca olham.
-- **[LOW] Variáveis de uma letra pra dados de negócio:** `u`, `e`, `p`, `cid`, `cc`.
-- **[LOW] Cache global que ninguém lê.** `globalCache` é escrito a cada checkout
-  e nunca consultado; `totalRevenue` é exportado e nunca atualizado.
+  (`coursesPending--`) pra decidir a hora de responder. Como a resposta sai no
+  callback que zerar o contador, a ordem do JSON depende de qual query terminar
+  primeiro.
+- **[MEDIUM] Quatro callbacks recebem `err` e nunca olham.**
+- **[LOW] Variáveis de uma letra pra dado de negócio** — `u`, `e`, `p`, `cid`,
+  `cc` (`AppManager.js:29-33`). `e` é e-mail, não erro, o que atrapalha a
+  leitura justamente onde tem callback aninhado.
+- **[LOW] Estado global que ninguém consome.** `globalCache` é escrito a cada
+  checkout e nunca lido; `totalRevenue` é exportado e nunca atualizado. Fiquei
+  um tempo procurando quem incrementava — não incrementa ninguém. É andaime
+  esquecido, mas passa a impressão de que existe métrica.
 
 ### `task-manager-api` (Python/Flask — gestor de tarefas)
 
-Esse é o "parcialmente organizado": tem `models/`, `routes/`, `services/` e
-`utils/`. Mas pasta com nome certo não é camada.
+O "parcialmente organizado": tem `models/`, `routes/`, `services/` e `utils/`.
+Foi o que mais me ensinou sobre o desafio, porque pasta com nome certo não é
+camada — abrindo os arquivos, `routes/` faz o trabalho de controller e de model,
+e `services/` não é importado por ninguém.
 
 - **[CRITICAL] Senha em MD5 sem salt — e o hash sai na resposta.** O `to_dict()`
-  do usuário inclui `password`, e ele é devolvido inclusive pelo `POST /login`.
-- **[CRITICAL] `SECRET_KEY` e senha de SMTP hardcoded** no `app.py` e no
+  do usuário inclui `password`, devolvido inclusive pelo `POST /login`.
+- **[CRITICAL] `SECRET_KEY` e senha de SMTP hardcoded**, no `app.py` e no
   `notification_service.py`.
-- **[HIGH] Não existe camada de controller.** As rotas fazem tudo. O
-  `summary_report` tem 90 linhas dentro do handler.
-- **[HIGH] Token de mentira.** O login devolve `'fake-jwt-token-' + id`, que
-  nenhuma rota confere. Nenhuma rota é protegida.
-- **[HIGH] O `services/` é código morto.** O `NotificationService` não é
-  importado por lugar nenhum.
-- **[MEDIUM] Cálculo de "task atrasada" reescrito 6 vezes** — e existe um
-  `Task.is_overdue()` no model que ninguém chama.
-- **[MEDIUM] Validador oficial ignorado.** `utils/helpers.py` tem um
+- **[HIGH] Não existe camada de controller.** As rotas fazem validação, ORM,
+  regra e serialização. O `summary_report` tem 90 linhas dentro do handler.
+- **[HIGH] Token de mentira:** o login devolve `'fake-jwt-token-' + id` e
+  nenhuma rota confere. Como nenhuma rota é protegida, o token é decorativo —
+  o que é pior do que não ter, porque sugere que existe autenticação.
+- **[HIGH] `services/` é código morto** — `NotificationService` não é importado
+  em lugar nenhum.
+- **[MEDIUM] "Task atrasada" reescrito 6 vezes** ao longo das rotas, enquanto um
+  `Task.is_overdue()` existe no model e ninguém chama.
+- **[MEDIUM] O validador oficial também é ignorado.** `utils/helpers.py` tem um
   `process_task_data()` de 52 linhas que nenhuma rota importa; a validação está
-  duplicada à mão entre POST e PUT.
-- **[MEDIUM] N+1 no `GET /tasks`** (2 queries por task) e no `GET /users`
-  (`len(u.tasks)` faz lazy load por usuário).
-- **[LOW] `except:` sem tipo em 9 lugares.** Um deles engole o erro do
-  `GET /tasks` inteiro e responde "Erro interno" sem log.
-- **[LOW] Constantes definidas e nunca importadas.** `utils/helpers.py:110-116`
-  declara os limites de validação; os handlers repetem os literais mesmo assim.
-- **[LOW] `datetime.utcnow()` em 18 lugares** — deprecated desde o Python 3.12.
+  duplicada à mão entre POST e PUT. Pelo jeito foi escrito primeiro e as rotas
+  seguiram sem ele.
+- **[MEDIUM] N+1 no `GET /tasks`** (2 queries por task) e no `GET /users`, onde
+  `len(u.tasks)` dispara lazy load por usuário.
+- **[LOW] `except:` sem tipo em 9 pontos das `routes/`** (tem mais 3 no
+  `utils/helpers.py`). Um deles engole o erro do `GET /tasks` inteiro e responde
+  "Erro interno" sem logar nada — foi o que mais me irritou de depurar.
+- **[LOW] Constantes declaradas e nunca importadas** (`utils/helpers.py:110-116`
+  define os limites de validação; os handlers repetem os literais).
+- **[LOW] `datetime.utcnow()` em 18 lugares**, deprecated desde o Python 3.12.
+  Esse foi o achado que me fez incluir detecção de API obsoleta no catálogo.
 
 > A lista completa, com arquivo, linha e impacto de cada achado, está nos
 > relatórios em [`reports/`](reports/).
