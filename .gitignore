@@ -10,3 +10,7 @@ venv/
 # SQLite
 *.db
 instance/
+
+# SQLite WAL
+*.db-wal
+*.db-shm
