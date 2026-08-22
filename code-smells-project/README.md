@@ -8,7 +8,6 @@ já refatorado para o padrão MVC pela skill.
 ```bash
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Linux/macOS: .venv/bin/pip
-cp .env.example .env                            # opcional em desenvolvimento
 python app.py
 ```
 
@@ -16,8 +15,10 @@ A aplicação sobe em `http://127.0.0.1:5000`. O banco SQLite (`loja.db`) é cri
 no primeiro boot, já com produtos e usuários de exemplo — as senhas do seed são
 gravadas com hash.
 
-Sem `SECRET_KEY` no ambiente, uma chave efêmera é gerada em desenvolvimento e o
-boot **falha** se `APP_ENV=production`.
+A configuração é lida de variáveis de ambiente — `.env.example` documenta os
+nomes; exporte-as no shell para sobrescrever os defaults de desenvolvimento. Sem
+`SECRET_KEY` no ambiente, uma chave efêmera é gerada em desenvolvimento e o boot
+**falha** se `APP_ENV=production`.
 
 ## Estrutura
 

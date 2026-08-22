@@ -12,7 +12,6 @@ validação, acesso ao ORM, regra de negócio e serialização.
 ```bash
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Linux/macOS: .venv/bin/pip
-cp .env.example .env                            # opcional em desenvolvimento
 python seed.py                                  # rode antes do primeiro boot
 python app.py
 ```
@@ -20,6 +19,10 @@ python app.py
 A aplicação sobe em `http://127.0.0.1:5000`. O banco fica em
 `instance/tasks.db`. Usuários do seed: `joao@email.com` / `1234`,
 `maria@email.com` / `abcd`, `pedro@email.com` / `pass`.
+
+A configuração é lida de variáveis de ambiente — `.env.example` documenta os
+nomes (`SECRET_KEY`, `DATABASE_URI`, `SMTP_*`, `NOTIFICATIONS_ENABLED`); exporte-as
+no shell para sobrescrever os defaults de desenvolvimento.
 
 ## Estrutura
 

@@ -7,7 +7,6 @@ LMS API (com fluxo de checkout) em Node.js/Express. Projeto de entrada do desafi
 
 ```bash
 npm install
-cp .env.example .env
 npm start
 ```
 
@@ -15,6 +14,9 @@ A aplicação sobe em `http://127.0.0.1:3000`. O banco SQLite é em memória por
 padrão (`DATABASE_PATH=:memory:`) e carrega o seed no boot; aponte
 `DATABASE_PATH` para um arquivo se quiser persistência.
 
+A configuração é lida de `process.env` — `.env.example` documenta os nomes. Para
+carregar de um arquivo, use o suporte nativo do Node 20.6+:
+`cp .env.example .env && node --env-file=.env src/app.js`.
 `PAYMENT_GATEWAY_KEY` e `SMTP_PASSWORD` são obrigatórias quando
 `APP_ENV=production`.
 

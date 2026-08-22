@@ -421,8 +421,16 @@ cp -r code-smells-project/.claude/skills/refactor-arch /caminho/do/projeto/.clau
 ```bash
 cd code-smells-project
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # Linux/macOS: .venv/bin/pip
-cp .env.example .env          # opcional: sem SECRET_KEY, gera uma efêmera em dev
 python app.py                 # http://127.0.0.1:5000
+```
+
+Em desenvolvimento não é preciso configurar nada: sem `SECRET_KEY` a aplicação
+gera uma chave efêmera e avisa no log. Para sobrescrever qualquer valor, exporte
+a variável antes de subir (a config é lida do ambiente — veja
+[.env.example](code-smells-project/.env.example) para a lista completa):
+
+```bash
+export SECRET_KEY=... DATABASE_PATH=loja.db     # PowerShell: $env:SECRET_KEY="..."
 ```
 
 ```bash
@@ -445,8 +453,15 @@ Sinais de que a refatoração funcionou: `/health` **não** devolve `secret_key`
 ```bash
 cd ecommerce-api-legacy
 npm install
-cp .env.example .env
 npm start                     # http://127.0.0.1:3000
+```
+
+Em desenvolvimento roda sem configuração (banco em `:memory:`, seed automático).
+As variáveis de [.env.example](ecommerce-api-legacy/.env.example) são lidas do
+ambiente; para carregá-las de um arquivo, use o suporte nativo do Node 20.6+:
+
+```bash
+cp .env.example .env && node --env-file=.env src/app.js
 ```
 
 ```bash
@@ -469,10 +484,13 @@ Sinais de que funcionou: o log mostra o cartão mascarado
 ```bash
 cd task-manager-api
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
-cp .env.example .env
 python seed.py                # popule antes do primeiro boot
 python app.py                 # http://127.0.0.1:5000
 ```
+
+Como no projeto 1, a config vem do ambiente e o modo de desenvolvimento não
+exige nenhuma variável — veja [.env.example](task-manager-api/.env.example) para
+os nomes (`SECRET_KEY`, `DATABASE_URI`, `SMTP_*`, `NOTIFICATIONS_ENABLED`).
 
 ```bash
 curl http://127.0.0.1:5000/tasks
