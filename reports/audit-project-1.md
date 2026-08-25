@@ -299,7 +299,7 @@ Arquivos legados `controllers.py`, `models.py` e `database.py` foram removidos.
 | AP-07 | Conexão global mutável | HIGH | `Database` com `threading.local()`, instanciado no composition root |
 | AP-08 | Sem injeção de dependência | HIGH | models/services/controllers recebem dependências por construtor; `create_app()` é o único lugar que instancia infra |
 | AP-10 | SQL no controller | HIGH | contadores viraram `contar()` nos models |
-| AP-11 | Autorização ausente | HIGH | rotas administrativas eliminadas; ver limitação abaixo |
+| AP-11 | Autorização ausente | HIGH | rotas administrativas eliminadas **e** RF-15: `AuthService` (`itsdangerous`, token com validade), `/login` passa a emitir `token` (campo aditivo), `require_auth` em `/usuarios`, `/usuarios/<id>` e `/relatorios/vendas`; imposição sob `AUTH_ENFORCED` (padrão `false`) |
 | AP-13 | N+1 | MEDIUM | listagem de pedidos em 2 queries (IN + LEFT JOIN); relatório em 1 query agregada |
 | AP-14 | Validação duplicada | MEDIUM | `middlewares/validators.py`, uma função por entidade, usada por POST e PUT |
 | AP-15 | Erro duplicado | MEDIUM | `middlewares/error_handler.py`; nenhum `try/except` nos controllers; detalhe da exceção só no log |
@@ -313,9 +313,16 @@ Arquivos legados `controllers.py`, `models.py` e `database.py` foram removidos.
 
 ### Findings não resolvidos
 
-| ID | Motivo | Risco residual |
-|---|---|---|
-| AP-11 (parcial) | Adicionar autenticação obrigatória mudaria o contrato: as rotas passariam a responder 401 para os clientes atuais. As rotas administrativas foram removidas e o vazamento de senha em `GET /usuarios` foi fechado, mas o `/login` continua sem emitir token assinado. | `GET /usuarios` e `GET /relatorios/vendas` seguem acessíveis sem autenticação (agora sem expor senhas) |
+Nenhum.
+
+> **Correção de revisão (AP-11).** Este finding constava como parcial, com a
+> justificativa de que autenticação obrigatória mudaria o contrato. A conclusão
+> estava errada: faltava padrão no playbook, não viabilidade. O RF-15 separa
+> **mecanismo** de **imposição** — o `/login` passou a emitir token assinado
+> (campo `token`, aditivo: `dados`, `sucesso` e `mensagem` seguem iguais) e as
+> rotas sensíveis ganharam `require_auth`. Com `AUTH_ENFORCED=false` (padrão) o
+> contrato é idêntico ao original e o acesso anônimo vira `WARN` no log; com
+> `AUTH_ENFORCED=true` as três rotas exigem `Bearer` token.
 
 ### Mudanças intencionais de contrato
 
@@ -326,7 +333,9 @@ As 3 abaixo são correções de segurança, registradas explicitamente:
 3. `GET /usuarios` e `GET /usuarios/<id>` não devolvem mais o campo `senha`.
 
 Além delas, o corpo de erro passou a incluir `sucesso: false` onde antes só
-havia `erro` — mudança **aditiva**, nenhum campo foi removido.
+havia `erro` — mudança **aditiva**, nenhum campo foi removido. Pelo mesmo
+critério, o `POST /login` passou a incluir `token` (RF-15): os campos `dados`,
+`sucesso` e `mensagem` seguem idênticos para quem já consome a rota.
 
 ### Validação
 
@@ -335,6 +344,19 @@ negócio), executada contra o código original e contra o refatorado:
 
 ```
 casos=33  status_iguais=31  status_diferentes=2  shape_diferentes=13
+```
+
+Autorização (RF-15) testada nos dois modos:
+
+```
+AUTH_ENFORCED=false (padrão)
+ 200 GET /usuarios | /usuarios/1 | /relatorios/vendas    contrato preservado (+ WARN no log)
+
+AUTH_ENFORCED=true
+ 401 GET /usuarios | /usuarios/1 | /relatorios/vendas    Credencial ausente
+ 200 mesmas 3 rotas com Bearer token do /login
+ 401 GET /usuarios com assinatura adulterada             "Token inválido"
+ 200 /, /health, /produtos, /produtos/1, /pedidos        rotas abertas seguem abertas
 ```
 
 - **Boot:** aplicação sobe sem erro (`python app.py`), 17 rotas registradas

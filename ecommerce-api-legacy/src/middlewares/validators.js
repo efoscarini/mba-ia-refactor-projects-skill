@@ -33,4 +33,14 @@ function validateUserId(params = {}) {
     return userId;
 }
 
-module.exports = { validateCheckout, validateUserId };
+/** Entrada do login (RF-15). Aceita `eml`/`pwd` do checkout e também email/password. */
+function validateLogin(body = {}) {
+    const email = body.eml || body.email;
+    const password = body.pwd || body.password;
+    if (!email || !password) {
+        throw new ValidationError('Bad Request');
+    }
+    return { email, password };
+}
+
+module.exports = { validateCheckout, validateUserId, validateLogin };

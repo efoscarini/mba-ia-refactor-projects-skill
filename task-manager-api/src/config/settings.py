@@ -39,6 +39,11 @@ class Settings:
         self.SMTP_PASSWORD = env.get("SMTP_PASSWORD", "")
         self.NOTIFICATIONS_ENABLED = _as_bool(env.get("NOTIFICATIONS_ENABLED"), default=False)
 
+        # RF-15: o middleware de autorização é sempre montado; só a imposição é
+        # opcional. Desligada por padrão para preservar o contrato das rotas.
+        self.AUTH_ENFORCED = _as_bool(env.get("AUTH_ENFORCED"), default=False)
+        self.TOKEN_MAX_AGE = int(env.get("AUTH_TOKEN_TTL", "3600"))
+
     @property
     def is_production(self):
         return self.APP_ENV.lower() in ("production", "prod")

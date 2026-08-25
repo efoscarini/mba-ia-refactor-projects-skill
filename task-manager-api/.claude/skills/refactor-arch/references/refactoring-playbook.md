@@ -481,9 +481,143 @@ mortos, aplicar early return. **Nunca logar** senha, cartão ou chave de API.
 
 ---
 
+## RF-15 — Autorização sem quebrar o contrato (resolve AP-11)
+
+Este é o único RF que conflita de frente com a **regra inviolável nº 2**: exigir
+credencial faz a rota responder 401 para um cliente que hoje recebe 200. Ligar
+autenticação de uma vez é quebra de contrato, e por isso a tentação é não fazer
+nada — foi exatamente assim que AP-11 ficou reportado e nunca corrigido.
+
+A saída é separar **mecanismo** de **imposição**. A refatoração entrega o
+mecanismo inteiro (token assinado, middleware, classificação das rotas) e deixa a
+imposição atrás de uma flag de configuração que nasce desligada. Com a flag
+desligada o contrato é idêntico ao original; com a flag ligada as rotas sensíveis
+passam a exigir credencial. Quem opera decide quando virar a chave — e enquanto
+não vira, cada acesso anônimo a rota sensível **vira log de aviso**, para o buraco
+ficar visível em vez de silencioso.
+
+**Nunca** deixe a flag ligada por padrão, e **nunca** trate isso como pendência
+resolvida: o relatório da Fase 3 declara o mecanismo entregue e a imposição
+opcional, com o nome exato da variável de ambiente.
+
+### Passo 1 — classificar as rotas
+
+Marque como sensível toda rota que: lê dado de outro usuário ou agregado do
+negócio (relatórios, faturamento, listagem de usuários), escreve/apaga registro
+de terceiro (`DELETE /users/:id`), ou é administrativa. Rotas de leitura pública
+de catálogo e o próprio `/login` ficam abertas.
+
+### Passo 2 — emitir credencial de verdade
+
+Se o login devolve token falso (`'fake-jwt-token-' + id`) ou não devolve nada,
+resolva isso primeiro — sem emissor não há o que verificar. Mantenha **o mesmo
+formato de resposta**: se o campo se chama `token` e é string, continua `token` e
+string; só o conteúdo passa a ser assinado.
+
+**Antes** (Python)
+```python
+# rota de login
+return jsonify({"token": "fake-jwt-token-" + str(user.id), "user": user.to_dict()})
+
+# rota sensível: nenhuma checagem
+@report_bp.route('/reports/summary')
+def summary_report():
+    ...
+```
+
+**Depois** (Python/Flask)
+```python
+# services/auth_service.py — emite e verifica
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+class AuthService:
+    def __init__(self, settings):
+        self._serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt=TOKEN_SALT)
+        self._max_age = settings.TOKEN_MAX_AGE
+
+    def emitir(self, user_id):
+        return self._serializer.dumps({"user_id": user_id})
+
+    def verificar(self, token):
+        try:
+            return self._serializer.loads(token, max_age=self._max_age)["user_id"]
+        except (BadSignature, SignatureExpired):
+            raise UnauthorizedError("Token inválido ou expirado")
+
+# middlewares/auth.py — imposição opcional
+def build_require_auth(settings, auth_service):
+    def require_auth(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            token = _extrair_bearer(request.headers.get("Authorization", ""))
+            if not settings.AUTH_ENFORCED:
+                if not token:
+                    logger.warning(
+                        "Rota sensível acessada sem credencial: %s %s "
+                        "(AUTH_ENFORCED=false — defina como true para bloquear)",
+                        request.method, request.path,
+                    )
+                return view(*args, **kwargs)
+            if not token:
+                raise UnauthorizedError("Credencial ausente")
+            g.user_id = auth_service.verificar(token)
+            return view(*args, **kwargs)
+        return wrapper
+    return require_auth
+
+# views/report_routes.py — a rota declara o que precisa
+bp.add_url_rule("/reports/summary", view_func=require_auth(controller.summary))
+```
+
+**Depois** (Node/Express)
+```javascript
+// middlewares/auth.js
+function buildRequireAuth({ config, authService, logger }) {
+    return (req, res, next) => {
+        const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+        if (!config.auth.enforced) {
+            if (!token) {
+                logger.warn('Rota sensível acessada sem credencial', {
+                    method: req.method, path: req.path,
+                    hint: 'AUTH_ENFORCED=false — defina como true para bloquear',
+                });
+            }
+            return next();
+        }
+        if (!token) return next(new UnauthorizedError('Credencial ausente'));
+        try {
+            req.userId = authService.verify(token);
+            return next();
+        } catch (err) {
+            return next(err);
+        }
+    };
+}
+
+// routes/report.routes.js
+router.get('/admin/financial-report', requireAuth, asyncHandler(controller.financialReport));
+```
+
+Sem biblioteca de JWT no projeto, `crypto.createHmac` resolve: payload em base64url
++ assinatura HMAC-SHA256 com a chave do ambiente, comparada com `timingSafeEqual`.
+Não invente esquema próprio de hash — assinatura é HMAC, e ponto.
+
+### Passo 3 — validar os dois modos
+
+O smoke test da Fase 3 passa a rodar **duas vezes**:
+
+| Modo | Esperado |
+|---|---|
+| `AUTH_ENFORCED=false` (padrão) | todas as rotas do baseline respondem o mesmo status de antes — contrato intacto |
+| `AUTH_ENFORCED=true` | rotas sensíveis sem header → 401; com token do `/login` → mesmo status do baseline |
+
+Se o segundo modo não for testado, o mecanismo não foi entregue — foi só escrito.
+
+---
+
 ## Ordem de execução e validação
 
-1. Aplique RF-01 → RF-14 na ordem das camadas (config primeiro, app por último).
+1. Aplique RF-01 → RF-15 na ordem das camadas (config primeiro, app por último).
 2. Depois de cada camada, verifique que a aplicação ainda sobe.
 3. Ao final: boot + smoke test de todas as rotas do baseline + varredura do
    catálogo sobre o código novo.

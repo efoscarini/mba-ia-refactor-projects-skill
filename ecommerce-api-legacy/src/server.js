@@ -19,6 +19,7 @@ const { PaymentModel } = require('./models/payment.model');
 const { AuditLogModel } = require('./models/auditLog.model');
 
 const { PasswordService } = require('./services/password.service');
+const { AuthService } = require('./services/auth.service');
 const { PaymentGatewayService } = require('./services/paymentGateway.service');
 const { CheckoutService } = require('./services/checkout.service');
 const { ReportService } = require('./services/report.service');
@@ -30,6 +31,7 @@ const { UserController } = require('./controllers/user.controller');
 
 const { buildRoutes } = require('./routes');
 const { buildErrorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+const { buildRequireAuth } = require('./middlewares/auth');
 
 async function createApp(overrides = {}) {
     const settings = overrides.config || config;
@@ -66,7 +68,13 @@ async function createApp(overrides = {}) {
     const reportService = new ReportService({
         courseModel, enrollmentModel, paymentModel, userModel,
     });
-    const userService = new UserService({ db, userModel, auditLogModel, logger });
+    const authService = new AuthService({
+        secret: settings.auth.secret,
+        tokenTtlSeconds: settings.auth.tokenTtlSeconds,
+    });
+    const userService = new UserService({
+        db, userModel, auditLogModel, passwordService, authService, logger,
+    });
 
     // --- controllers ---
     const checkoutController = new CheckoutController(checkoutService);
@@ -76,7 +84,11 @@ async function createApp(overrides = {}) {
     // --- aplicação ---
     const app = express();
     app.use(express.json());
-    app.use('/api', buildRoutes({ checkoutController, reportController, userController }));
+    const requireAuth = buildRequireAuth({ config: settings, authService, logger });
+
+    app.use('/api', buildRoutes({
+        checkoutController, reportController, userController, requireAuth,
+    }));
     app.use(notFoundHandler);
     app.use(buildErrorHandler(logger));
 

@@ -15,10 +15,12 @@ from src.controllers.system_controller import SystemController
 from src.controllers.usuario_controller import UsuarioController
 from src.infra.database import Database
 from src.infra.schema import criar_schema, popular_dados_iniciais
+from src.middlewares.auth import construir_require_auth
 from src.middlewares.error_handler import registrar_error_handlers
 from src.models.pedido_model import PedidoModel
 from src.models.produto_model import ProdutoModel
 from src.models.usuario_model import UsuarioModel, gerar_hash
+from src.services.auth_service import AuthService
 from src.services.notificacao_service import NotificacaoService
 from src.services.pedido_service import PedidoService
 from src.services.relatorio_service import RelatorioService
@@ -58,22 +60,24 @@ def create_app(settings: Settings = None, db: Database = None):
     pedido_model = PedidoModel(db)
 
     # --- services ---
+    auth_service = AuthService(settings)
     notificacao_service = NotificacaoService()
     pedido_service = PedidoService(pedido_model, produto_model, notificacao_service)
     relatorio_service = RelatorioService(pedido_model)
 
     # --- controllers ---
     produto_controller = ProdutoController(produto_model)
-    usuario_controller = UsuarioController(usuario_model)
+    usuario_controller = UsuarioController(usuario_model, auth_service)
     pedido_controller = PedidoController(pedido_service)
     relatorio_controller = RelatorioController(relatorio_service)
     system_controller = SystemController(produto_model, usuario_model, pedido_model)
 
     # --- rotas ---
+    require_auth = construir_require_auth(settings, auth_service)
     app.register_blueprint(produto_routes.criar_blueprint(produto_controller))
-    app.register_blueprint(usuario_routes.criar_blueprint(usuario_controller))
+    app.register_blueprint(usuario_routes.criar_blueprint(usuario_controller, require_auth))
     app.register_blueprint(pedido_routes.criar_blueprint(pedido_controller))
-    app.register_blueprint(relatorio_routes.criar_blueprint(relatorio_controller))
+    app.register_blueprint(relatorio_routes.criar_blueprint(relatorio_controller, require_auth))
     app.register_blueprint(system_routes.criar_blueprint(system_controller))
 
     # --- middlewares ---

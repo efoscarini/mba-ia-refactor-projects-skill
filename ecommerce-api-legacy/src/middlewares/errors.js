@@ -29,4 +29,10 @@ class BusinessError extends AppError {
     }
 }
 
-module.exports = { AppError, ValidationError, NotFoundError, BusinessError };
+class UnauthorizedError extends AppError {
+    constructor(message = 'Credenciais inválidas') {
+        super(message, 401);
+    }
+}
+
+module.exports = { AppError, ValidationError, NotFoundError, BusinessError, UnauthorizedError };

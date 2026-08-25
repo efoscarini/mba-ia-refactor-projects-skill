@@ -280,7 +280,7 @@ Arquivos legados `src/AppManager.js` e `src/utils.js` foram removidos.
 | AP-08 | Sem injeção de dependência | HIGH | tudo por construtor; `createApp()` é o único ponto com `new` de infra |
 | AP-09 | Callback hell | HIGH | driver promisificado (`Database`); checkout linear com `await`; matrícula + pagamento + auditoria dentro de `db.transaction()` |
 | AP-10 | Sem abstração de dados | HIGH | 5 models; nenhuma query fora de `models/` e `infra/` |
-| AP-11 | Autorização ausente | HIGH | parcialmente — ver limitação abaixo |
+| AP-11 | Autorização ausente | HIGH | RF-15: `AuthService` (HMAC-SHA256, `timingSafeEqual`), `POST /api/login` como emissor, `requireAuth` em `GET /api/admin/financial-report` e `DELETE /api/users/:id`; imposição sob `AUTH_ENFORCED` (padrão `false`) |
 | AP-12 | Integridade referencial | HIGH | FKs `ON DELETE CASCADE` em `enrollments` e `payments`, `PRAGMA foreign_keys = ON`, exclusão em transação |
 | AP-13 | N+1 | MEDIUM | relatório em 4 queries (`Promise.all` + `IN`) e agrupamento em memória, com ordem determinística por id |
 | AP-14 | Validação mínima | MEDIUM | `middlewares/validators.js` roda antes de qualquer efeito colateral |
@@ -297,8 +297,16 @@ Arquivos legados `src/AppManager.js` e `src/utils.js` foram removidos.
 
 | ID | Motivo | Risco residual |
 |---|---|---|
-| AP-11 | Exigir autenticação faria as rotas passarem a responder 401 para os clientes atuais — quebra de contrato. Não existe endpoint de login no projeto para emitir credencial. | `GET /api/admin/financial-report` e `DELETE /api/users/:id` continuam acessíveis sem autenticação |
 | Express 4.x | Migração para Express 5 está fora do escopo da refatoração MVC | linha em modo de manutenção |
+
+> **Correção de revisão (AP-11).** Este finding constava aqui como não resolvido,
+> com a justificativa de que exigir autenticação quebraria o contrato. A
+> justificativa estava errada na conclusão: o que faltava era um padrão no
+> playbook. O RF-15 separa **mecanismo** de **imposição** — o mecanismo foi
+> entregue por inteiro e a imposição fica sob `AUTH_ENFORCED`, que nasce
+> desligada. Com a flag desligada o contrato é idêntico ao original e cada acesso
+> anônimo a rota sensível é registrado como `WARN`; com `AUTH_ENFORCED=true` as
+> duas rotas exigem `Bearer` token. Ambos os modos são testados (ver Validação).
 
 ### Mudanças intencionais de contrato
 
@@ -316,6 +324,10 @@ Status codes: **nenhuma mudança**. Três corpos de resposta mudaram:
 Mudança adicional fora do baseline: `DELETE /api/users/:id` com id não numérico
 passa a responder 400 em vez de 200.
 
+Rota **aditiva** do RF-15: `POST /api/login` passa a existir para emitir a
+credencial que o middleware verifica. Nenhuma rota existente teve path, método,
+corpo ou status alterado por causa dela.
+
 ### Validação
 
 Suíte de 9 chamadas HTTP (checkout aprovado, checkout recusado, request
@@ -331,6 +343,21 @@ checkouts nos dois códigos, JSON normalizado e comparado com `diff`):
 
 ```
 RELATORIO FINANCEIRO: IDENTICO ao original
+```
+
+Autorização (RF-15) testada nos dois modos:
+
+```
+AUTH_ENFORCED=false (padrão)
+ 200 GET  /api/admin/financial-report      contrato preservado (+ WARN no log)
+ 200 DELETE /api/users/1                   contrato preservado (+ WARN no log)
+
+AUTH_ENFORCED=true
+ 401 GET  /api/admin/financial-report      Credencial ausente
+ 401 DELETE /api/users/1                   Credencial ausente
+ 200 GET  /api/admin/financial-report      com Bearer token do /api/login
+ 401 GET  /api/admin/financial-report      assinatura adulterada → "Assinatura inválida"
+ 401 POST /api/login                       senha errada → "Credenciais inválidas"
 ```
 
 - **Boot:** `npm start` sobe sem erro

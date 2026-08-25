@@ -5,9 +5,12 @@
 const express = require('express');
 const { asyncHandler } = require('../middlewares/errorHandler');
 
-function buildUserRoutes(controller) {
+function buildUserRoutes(controller, requireAuth) {
     const router = express.Router();
-    router.delete('/users/:id', asyncHandler((req, res) => controller.remove(req, res)));
+    // Aditiva (RF-15): emite a credencial que o middleware verifica.
+    router.post('/login', asyncHandler((req, res) => controller.login(req, res)));
+    // Sensível: apaga registro de terceiro, em cascata.
+    router.delete('/users/:id', requireAuth, asyncHandler((req, res) => controller.remove(req, res)));
     return router;
 }
 

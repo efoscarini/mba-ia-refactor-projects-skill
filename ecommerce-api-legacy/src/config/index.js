@@ -6,6 +6,10 @@
  * chave de gateway e usuário SMTP no código).
  */
 
+const crypto = require('crypto');
+
+const { DEFAULT_TOKEN_TTL_SECONDS } = require('./constants');
+
 function asBool(raw, fallback = false) {
     if (raw === undefined || raw === null || raw === '') return fallback;
     return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
@@ -37,6 +41,14 @@ const config = {
     smtp: {
         user: env.SMTP_USER || '',
         password: required('SMTP_PASSWORD', env.SMTP_PASSWORD, isProduction),
+    },
+    auth: {
+        // RF-15: o mecanismo de autorização é sempre montado; só a imposição é
+        // opcional. Desligada por padrão para preservar o contrato das rotas.
+        enforced: asBool(env.AUTH_ENFORCED, false),
+        secret: env.AUTH_SECRET || required('AUTH_SECRET', env.AUTH_SECRET, isProduction)
+            || crypto.randomBytes(32).toString('hex'),
+        tokenTtlSeconds: Number(env.AUTH_TOKEN_TTL || DEFAULT_TOKEN_TTL_SECONDS),
     },
 };
 

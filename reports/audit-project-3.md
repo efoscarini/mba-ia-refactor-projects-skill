@@ -284,7 +284,7 @@ da raiz foram removidos.
 | AP-06 | Regra nas rotas | HIGH | `TaskService`, `UserService`, `CategoryService` e `ReportService`; o `summary_report` de 90 linhas virou 1 linha de controller |
 | AP-04 | Sem controllers | HIGH | 5 controllers + 5 arquivos de rota; CRUD de categorias saiu de `report_routes.py` para o seu próprio módulo |
 | AP-10 | Acesso a dados espalhado | HIGH | todas as consultas concentradas nos models; zero `db.session`/`db.select` em controllers e views |
-| AP-11 | Token falso | HIGH | token assinado com `itsdangerous` (`URLSafeTimedSerializer` + `SECRET_KEY`), mesmo formato de resposta; ver limitação abaixo |
+| AP-11 | Token falso e rota desprotegida | HIGH | token assinado com `itsdangerous` (`URLSafeTimedSerializer` + `SECRET_KEY`), mesmo formato de resposta; RF-15 extraiu o `AuthService` (emite **e** verifica) e pôs `require_auth` em `GET /users`, `DELETE /users/<id>`, `/reports/summary` e `/reports/user/<id>`; imposição sob `AUTH_ENFORCED` (padrão `false`) |
 | AP-07 | Estado em memória | HIGH | lista `self.notifications` removida; o registro vai para o log |
 | AP-08 | Acoplamento / serviço morto | HIGH | dependências por construtor; `NotificationService` recebe `settings` e passou a ser chamado pelo `TaskService` na atribuição de task |
 | AP-13 | N+1 | MEDIUM | `GET /tasks` em 3 queries; `GET /users` e `GET /categories` com `COUNT` agregado por `GROUP BY`; `summary` agrupa em memória a lista já carregada |
@@ -309,8 +309,16 @@ eliminando a chamada deprecated sem migrar o schema.
 
 | ID | Motivo | Risco residual |
 |---|---|---|
-| AP-11 (parcial) | O token agora é assinado, mas exigir `Authorization` nas rotas faria todas responderem 401 para os clientes atuais — quebra de contrato. | `GET /users`, `DELETE /users/<id>` e `/reports/summary` continuam acessíveis sem autenticação (agora sem expor hash de senha) |
 | AP-12 (parcial) | Excluir uma categoria continua deixando `category_id` nas tasks. Anular o campo mudaria dados que o cliente atual talvez espere preservar. | `GET /tasks` pode devolver `category_name: null` para tasks de uma categoria excluída |
+
+> **Correção de revisão (AP-11).** O finding constava como parcial: o token já
+> era assinado, mas nenhuma rota o verificava — o emissor existia sem
+> verificador. A justificativa de "quebraria o contrato" mascarava a ausência de
+> padrão no playbook. O RF-15 extraiu o `AuthService` (que agora emite **e**
+> verifica) e protegeu as 4 rotas sensíveis. Com `AUTH_ENFORCED=false` (padrão) o
+> contrato é idêntico e o acesso anônimo vira `WARN`; com `AUTH_ENFORCED=true`
+> elas exigem `Bearer` token. As rotas abertas (`/tasks`, `/categories`,
+> `/health`) seguem abertas nos dois modos.
 
 ### Mudanças intencionais de contrato
 
@@ -332,6 +340,19 @@ validação, 404, 409 e 401:
 
 ```
 casos=50  status_iguais=50  status_diferentes=0  body_diferentes=5
+```
+
+Autorização (RF-15) testada nos dois modos:
+
+```
+AUTH_ENFORCED=false (padrão)
+ 200 GET /users | /reports/summary | /reports/user/1 | DELETE /users/3   contrato preservado (+ WARN)
+
+AUTH_ENFORCED=true
+ 401 as mesmas 4 rotas sem header                        Credencial ausente
+ 200 as mesmas rotas com Bearer token do /login
+ 401 GET /users com assinatura adulterada                "Token inválido"
+ 200 /health, /tasks, /tasks/stats, /categories          rotas abertas seguem abertas
 ```
 
 - **Boot:** `python seed.py` e `python app.py` executam sem erro

@@ -15,6 +15,11 @@ class UserModel {
         return this.db.get('SELECT id, name, email FROM users WHERE id = ?', [id]);
     }
 
+    /** Único ponto que lê a coluna `pass` — usado só na verificação de login. */
+    findCredentialsByEmail(email) {
+        return this.db.get('SELECT id, name, email, pass FROM users WHERE email = ?', [email]);
+    }
+
     /** Nomes dos alunos de uma lista de ids em uma query só (evita N+1). */
     async findManyByIds(ids) {
         if (ids.length === 0) return new Map();

@@ -7,11 +7,11 @@ const { buildCheckoutRoutes } = require('./checkout.routes');
 const { buildReportRoutes } = require('./report.routes');
 const { buildUserRoutes } = require('./user.routes');
 
-function buildRoutes({ checkoutController, reportController, userController }) {
+function buildRoutes({ checkoutController, reportController, userController, requireAuth }) {
     const router = express.Router();
     router.use(buildCheckoutRoutes(checkoutController));
-    router.use(buildReportRoutes(reportController));
-    router.use(buildUserRoutes(userController));
+    router.use(buildReportRoutes(reportController, requireAuth));
+    router.use(buildUserRoutes(userController, requireAuth));
     return router;
 }
 

@@ -16,6 +16,9 @@ const GENERATED_PASSWORD_BYTES = 24;
 
 const CARD_VISIBLE_DIGITS = 4;
 
+/** Validade do token emitido pelo login (RF-15). */
+const DEFAULT_TOKEN_TTL_SECONDS = 3600;
+
 module.exports = {
     PAYMENT_STATUS,
     APPROVED_CARD_PREFIXES,
@@ -23,4 +26,5 @@ module.exports = {
     SCRYPT_SALT_BYTES,
     GENERATED_PASSWORD_BYTES,
     CARD_VISIBLE_DIGITS,
+    DEFAULT_TOKEN_TTL_SECONDS,
 };

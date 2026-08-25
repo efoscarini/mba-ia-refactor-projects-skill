@@ -2,7 +2,7 @@
 
 /** Orquestração da exclusão de usuário. */
 
-const { validateUserId } = require('../middlewares/validators');
+const { validateUserId, validateLogin } = require('../middlewares/validators');
 
 class UserController {
     constructor(userService) {
@@ -13,6 +13,11 @@ class UserController {
         const userId = validateUserId(req.params);
         await this.users.delete(userId);
         res.send('Usuário deletado.');
+    }
+
+    async login(req, res) {
+        const credentials = validateLogin(req.body);
+        res.json(await this.users.login(credentials));
     }
 }
 

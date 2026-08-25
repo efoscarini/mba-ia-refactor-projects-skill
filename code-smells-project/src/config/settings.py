@@ -26,6 +26,11 @@ class Settings:
         self.CORS_ORIGINS = env.get("CORS_ORIGINS", "*")
         self.LOG_LEVEL = env.get("LOG_LEVEL", "INFO")
         self.SEED_ADMIN_PASSWORD = env.get("SEED_ADMIN_PASSWORD", "")
+
+        # RF-15: o middleware de autorização é sempre montado; só a imposição é
+        # opcional. Desligada por padrão para preservar o contrato das rotas.
+        self.AUTH_ENFORCED = _as_bool(env.get("AUTH_ENFORCED"), default=False)
+        self.TOKEN_MAX_AGE = int(env.get("AUTH_TOKEN_TTL", "3600"))
         self.SECRET_KEY = self._resolver_secret_key(env.get("SECRET_KEY", ""))
 
     @property

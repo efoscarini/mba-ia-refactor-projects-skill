@@ -247,6 +247,33 @@ fallback. Só que esse helper era código morto, e a rota real aceitava apenas
 em vez de 400). Lição que virou regra na skill: consolidar código morto com
 código vivo pode afrouxar validação sem ninguém perceber.
 
+**Um anti-pattern que o catálogo detectava e o playbook não corrigia.** Este foi
+o erro mais instrutivo, e só apareceu na revisão. O AP-11 (autorização ausente)
+era detectado corretamente nos 3 projetos e aparecia nos 3 relatórios — mas saía
+da Fase 3 sem uma linha de código alterada, sempre com a mesma justificativa:
+exigir credencial faria a rota responder 401 onde hoje responde 200, e a regra
+inviolável nº 2 proíbe mudar status code.
+
+A justificativa era verdadeira e a conclusão, errada. Comparando catálogo e
+playbook, o AP-11 era **o único dos 23 anti-patterns sem RF correspondente** — a
+skill sabia acusar e não sabia consertar, e a regra do contrato virou o álibi
+perfeito para isso passar despercebido em três execuções seguidas.
+
+A correção tem duas partes. O **RF-15** separa mecanismo de imposição: a
+refatoração entrega token assinado, middleware e classificação das rotas, e deixa
+a imposição atrás de `AUTH_ENFORCED`, que nasce desligada. Com a flag desligada o
+contrato é idêntico ao original — e cada acesso anônimo a rota sensível vira
+`WARN` no log, para o buraco ficar visível em vez de silencioso. Com a flag
+ligada, as rotas exigem `Bearer` token. A validação da Fase 3 passou a rodar o
+smoke test **duas vezes**, uma por modo.
+
+A segunda parte é uma regra nova no `SKILL.md`, porque só o RF não impediria a
+repetição: *"quebraria o contrato" não é alta de finding* — antes de registrar
+qualquer limitação é preciso procurar um padrão compatível no playbook, e um
+CRITICAL/HIGH que sai da Fase 3 sem mudança de código é falha da refatoração, não
+característica dela. Sem essa regra, o próximo anti-pattern sem RF cairia no
+mesmo álibi.
+
 ---
 
 ## C) Resultados
@@ -281,6 +308,8 @@ Detalhes de segurança:
 | Endpoint de SQL arbitrário removido | ✓ | — | — |
 | Debug desligado por padrão | ✓ | — | ✓ |
 | Dado sensível fora do log | ✓ | ✓ (cartão) | ✓ |
+| Token de sessão assinado | ✓ (itsdangerous) | ✓ (HMAC-SHA256) | ✓ (itsdangerous) |
+| Autorização em rota sensível (RF-15) | ✓ 3 rotas | ✓ 2 rotas | ✓ 4 rotas |
 
 ### Checklist de validação
 
@@ -398,7 +427,11 @@ try/except em controllers ..... nenhum
 print/console.log direto ...... nenhum
 md5 / hash caseiro ............ nenhum
 APIs deprecated ............... nenhuma
+rota sensível sem require_auth  nenhuma
 ```
+
+Todo anti-pattern do catálogo agora tem RF correspondente no playbook — o AP-11
+era o único órfão, e foi o que fez a Fase 3 reportá-lo três vezes sem corrigir.
 
 ---
 
@@ -531,6 +564,32 @@ curl -X POST http://127.0.0.1:5000/login \
 
 Sinais de que funcionou: nenhuma resposta contém o campo `password`, o `token` do
 login é assinado (não `fake-jwt-token-1`), e uma rota inexistente devolve JSON.
+
+### Testando a autorização (RF-15)
+
+Os 3 projetos nascem com `AUTH_ENFORCED=false`, que preserva o contrato original.
+Ligue a flag para ver a proteção agir — as rotas sensíveis passam a exigir
+`Bearer` token e as demais continuam abertas:
+
+```bash
+# Projeto 1
+AUTH_ENFORCED=true python app.py
+curl -i http://127.0.0.1:5000/usuarios                    # 401 Credencial ausente
+TOKEN=$(curl -s -X POST http://127.0.0.1:5000/login -H 'Content-Type: application/json' \
+        -d '{"email":"joao@email.com","senha":"123456"}' | python -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/usuarios   # 200
+
+# Projeto 2
+AUTH_ENFORCED=true AUTH_SECRET=troque-esta-chave npm start
+curl -i http://127.0.0.1:3000/api/admin/financial-report  # 401 Credencial ausente
+
+# Projeto 3
+AUTH_ENFORCED=true python app.py
+curl -i http://127.0.0.1:5000/reports/summary             # 401 Credencial ausente
+```
+
+Com a flag desligada, o acesso anônimo a rota sensível continua respondendo 200 —
+mas aparece no log como `WARN ... Rota sensível acessada sem credencial`.
 
 ### Estrutura do repositório
 

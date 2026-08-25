@@ -11,7 +11,9 @@ from src.controllers.system_controller import SystemController
 from src.controllers.task_controller import TaskController
 from src.controllers.user_controller import UserController
 from src.infra.database import db
+from src.middlewares.auth import construir_require_auth
 from src.middlewares.error_handler import registrar_error_handlers
+from src.services.auth_service import AuthService
 from src.services.category_service import CategoryService
 from src.services.notification_service import NotificationService
 from src.services.report_service import ReportService
@@ -52,7 +54,8 @@ def create_app(settings: Settings = None):
     # --- services ---
     notification_service = NotificationService(settings)
     task_service = TaskService(notification_service)
-    user_service = UserService(settings)
+    auth_service = AuthService(settings)
+    user_service = UserService(auth_service)
     category_service = CategoryService()
     report_service = ReportService()
 
@@ -64,10 +67,11 @@ def create_app(settings: Settings = None):
     system_controller = SystemController()
 
     # --- rotas ---
+    require_auth = construir_require_auth(settings, auth_service)
     app.register_blueprint(task_routes.criar_blueprint(task_controller))
-    app.register_blueprint(user_routes.criar_blueprint(user_controller))
+    app.register_blueprint(user_routes.criar_blueprint(user_controller, require_auth))
     app.register_blueprint(category_routes.criar_blueprint(category_controller))
-    app.register_blueprint(report_routes.criar_blueprint(report_controller))
+    app.register_blueprint(report_routes.criar_blueprint(report_controller, require_auth))
     app.register_blueprint(system_routes.criar_blueprint(system_controller))
 
     # --- middlewares ---

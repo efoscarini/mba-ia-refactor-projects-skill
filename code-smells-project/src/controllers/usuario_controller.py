@@ -6,8 +6,9 @@ from src.middlewares.validators import validar_login, validar_usuario
 
 
 class UsuarioController:
-    def __init__(self, usuario_model):
+    def __init__(self, usuario_model, auth_service):
         self._usuarios = usuario_model
+        self._auth = auth_service
 
     def listar(self):
         return jsonify({"dados": self._usuarios.listar(), "sucesso": True}), 200
@@ -30,4 +31,7 @@ class UsuarioController:
             "dados": usuario,
             "sucesso": True,
             "mensagem": "Login OK",
+            # Aditivo (RF-15): o original não emitia credencial. Os campos acima
+            # seguem idênticos para quem já consome a rota.
+            "token": self._auth.emitir(usuario["id"]),
         }), 200

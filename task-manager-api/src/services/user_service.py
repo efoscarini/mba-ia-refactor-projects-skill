@@ -1,17 +1,15 @@
 """Casos de uso de Usuário e autenticação."""
-from itsdangerous import URLSafeTimedSerializer
-
 from src.middlewares.errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
 from src.models.task import Task
 from src.models.user import User
 from src.utils.datetime_utils import format_date
 
-TOKEN_SALT = "task-manager-auth"
-
 
 class UserService:
-    def __init__(self, settings):
-        self._serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt=TOKEN_SALT)
+    def __init__(self, auth_service):
+        # A emissão de token mora no AuthService, que também sabe verificar —
+        # antes o serializer vivia aqui e ninguém conferia o token emitido.
+        self._auth = auth_service
 
     # --- leitura ---
 
@@ -98,7 +96,7 @@ class UserService:
         return {
             "message": "Login realizado com sucesso",
             "user": user.to_dict(),
-            "token": self._serializer.dumps({"user_id": user.id}),
+            "token": self._auth.emitir(user.id),
         }
 
     # --- apoio ---
