@@ -481,31 +481,58 @@ mortos, aplicar early return. **Nunca logar** senha, cartão ou chave de API.
 
 ---
 
-## RF-15 — Autorização sem quebrar o contrato (resolve AP-11)
+## RF-15 — Autorização em rota sensível (resolve AP-11)
 
 Este é o único RF que conflita de frente com a **regra inviolável nº 2**: exigir
-credencial faz a rota responder 401 para um cliente que hoje recebe 200. Ligar
-autenticação de uma vez é quebra de contrato, e por isso a tentação é não fazer
-nada — foi exatamente assim que AP-11 ficou reportado e nunca corrigido.
+credencial faz a rota responder 401 para um cliente que hoje recebe 200. Por isso
+a tentação é não fazer nada — foi exatamente assim que AP-11 ficou reportado e
+nunca corrigido.
 
-A saída é separar **mecanismo** de **imposição**. A refatoração entrega o
-mecanismo inteiro (token assinado, middleware, classificação das rotas) e deixa a
-imposição atrás de uma flag de configuração que nasce desligada. Com a flag
-desligada o contrato é idêntico ao original; com a flag ligada as rotas sensíveis
-passam a exigir credencial. Quem opera decide quando virar a chave — e enquanto
-não vira, cada acesso anônimo a rota sensível **vira log de aviso**, para o buraco
-ficar visível em vez de silencioso.
+Só que rota sensível aberta é o próprio finding. Deixar a imposição desligada
+"para preservar o contrato" entrega o mecanismo e mantém o buraco: o relatório
+financeiro continua respondendo a chamada anônima. **A imposição nasce ligada.**
+O 401 nas rotas sensíveis é uma **mudança intencional de contrato** — a única
+categoria que a regra nº 2 admite, e que por isso precisa estar declarada no
+relatório, rota por rota.
 
-**Nunca** deixe a flag ligada por padrão, e **nunca** trate isso como pendência
-resolvida: o relatório da Fase 3 declara o mecanismo entregue e a imposição
-opcional, com o nome exato da variável de ambiente.
+O que continua separado é o **mecanismo** da **imposição**: `AUTH_ENFORCED=false`
+existe como válvula de escape para quem precisa de uma janela de migração (dar
+tempo aos clientes de passarem a mandar o header). Com a flag desligada o
+contrato volta a ser o original e cada acesso anônimo a rota sensível **vira log
+de aviso**, para o buraco ficar visível em vez de silencioso.
+
+**Nunca** entregue só o mecanismo e declare o AP-11 resolvido: sem a imposição
+ligada por padrão, o finding continua de pé.
 
 ### Passo 1 — classificar as rotas
 
-Marque como sensível toda rota que: lê dado de outro usuário ou agregado do
-negócio (relatórios, faturamento, listagem de usuários), escreve/apaga registro
-de terceiro (`DELETE /users/:id`), ou é administrativa. Rotas de leitura pública
-de catálogo e o próprio `/login` ficam abertas.
+Percorra **todas** as rotas e classifique uma a uma. Classificação incompleta é
+o modo de falha mais comum deste RF — proteger `DELETE /users/:id` e esquecer
+`PUT /users/:id` deixa o finding meio resolvido, que é o mesmo que não resolvido.
+
+**Sensível** (recebe o middleware):
+- lê dado de outro usuário — `GET /users/<id>`, `GET /users/<id>/tasks`,
+  `GET /pedidos/usuario/<id>`;
+- lê agregado do negócio — relatórios, faturamento, listagem de usuários,
+  listagem de todos os pedidos/tasks, estatísticas;
+- escreve ou apaga registro de terceiro — `PUT`/`DELETE` sobre entidade de
+  usuário, mudança de status de pedido alheio;
+- escreve em catálogo ou taxonomia (`POST`/`PUT`/`DELETE` de produto, categoria):
+  é operação administrativa, ainda que a leitura correspondente seja pública;
+- é administrativa por natureza — qualquer `/admin/*`.
+
+**Aberta**:
+- leitura pública de catálogo — `GET /produtos`, `GET /produtos/<id>`, busca;
+- health check e raiz;
+- auto-serviço em que o próprio autor se identifica: `POST /login`,
+  cadastro (`POST /users`), checkout que recebe e-mail e senha do comprador.
+
+O critério de "auto-serviço" é a identificação, não o verbo: uma rota que aceita
+`usuario_id` no corpo **sem** provar quem é o chamador escreve registro de
+terceiro e é sensível.
+
+Registre a classificação inteira no relatório, incluindo o que ficou aberto e por
+quê — é isso que permite revisar a decisão.
 
 ### Passo 2 — emitir credencial de verdade
 
@@ -544,7 +571,7 @@ class AuthService:
         except (BadSignature, SignatureExpired):
             raise UnauthorizedError("Token inválido ou expirado")
 
-# middlewares/auth.py — imposição opcional
+# middlewares/auth.py — imposição ligada por padrão
 def build_require_auth(settings, auth_service):
     def require_auth(view):
         @wraps(view)
@@ -554,7 +581,7 @@ def build_require_auth(settings, auth_service):
                 if not token:
                     logger.warning(
                         "Rota sensível acessada sem credencial: %s %s "
-                        "(AUTH_ENFORCED=false — defina como true para bloquear)",
+                        "(AUTH_ENFORCED=false — imposição desligada por configuração)",
                         request.method, request.path,
                     )
                 return view(*args, **kwargs)
@@ -579,7 +606,7 @@ function buildRequireAuth({ config, authService, logger }) {
             if (!token) {
                 logger.warn('Rota sensível acessada sem credencial', {
                     method: req.method, path: req.path,
-                    hint: 'AUTH_ENFORCED=false — defina como true para bloquear',
+                    hint: 'AUTH_ENFORCED=false — imposição desligada por configuração',
                 });
             }
             return next();
@@ -602,16 +629,24 @@ Sem biblioteca de JWT no projeto, `crypto.createHmac` resolve: payload em base64
 + assinatura HMAC-SHA256 com a chave do ambiente, comparada com `timingSafeEqual`.
 Não invente esquema próprio de hash — assinatura é HMAC, e ponto.
 
+O segredo de assinatura é configuração, nunca literal (AP-01): variável de
+ambiente obrigatória em produção. Em desenvolvimento, gerar chave efêmera é
+aceitável desde que o boot registre aviso — token não sobrevive a restart.
+
 ### Passo 3 — validar os dois modos
 
 O smoke test da Fase 3 passa a rodar **duas vezes**:
 
 | Modo | Esperado |
 |---|---|
-| `AUTH_ENFORCED=false` (padrão) | todas as rotas do baseline respondem o mesmo status de antes — contrato intacto |
-| `AUTH_ENFORCED=true` | rotas sensíveis sem header → 401; com token do `/login` → mesmo status do baseline |
+| `AUTH_ENFORCED=true` (padrão) | rotas sensíveis sem header → 401; com token do `/login` → mesmo status do baseline; rotas abertas → status do baseline |
+| `AUTH_ENFORCED=false` (migração) | todas as rotas do baseline respondem o mesmo status de antes — contrato original restaurado, com `WARN` a cada acesso anônimo |
 
-Se o segundo modo não for testado, o mecanismo não foi entregue — foi só escrito.
+Teste também a rejeição: token com assinatura adulterada tem que responder 401,
+senão a verificação é decorativa.
+
+Se o segundo modo não for testado, a válvula de escape não foi entregue — foi só
+escrita.
 
 ---
 

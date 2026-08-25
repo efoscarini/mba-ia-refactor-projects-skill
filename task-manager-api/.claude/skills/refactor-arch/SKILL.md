@@ -23,12 +23,13 @@ detecte a partir dos arquivos de manifesto e do código.
    algoritmo de hash de senha invalida senhas já gravadas), reporte, aplique a
    correção compatível e registre a limitação no relatório.
 6. **"Quebraria o contrato" não é alta de finding.** Antes de registrar qualquer
-   coisa como limitação, procure no playbook um padrão compatível — vários
-   findings que parecem inevitáveis têm solução em duas partes (entregar o
-   mecanismo, deixar a imposição atrás de flag desligada por padrão; ver RF-15).
-   Só é limitação legítima o que não tem padrão no playbook. Um finding CRITICAL
-   ou HIGH que sai da Fase 3 sem nenhuma mudança de código é falha da
-   refatoração, não característica dela.
+   coisa como limitação, procure no playbook um padrão compatível. Quando a
+   correção de um finding CRITICAL ou HIGH exige mudar o contrato, a saída é
+   mudá-lo **declaradamente** — a mudança entra na seção de mudanças
+   intencionais do relatório, rota por rota, com a válvula de escape documentada
+   (ver RF-15). Só é limitação legítima o que não tem padrão no playbook. Um
+   finding CRITICAL ou HIGH que sai da Fase 3 sem nenhuma mudança de código é
+   falha da refatoração, não característica dela.
 
 ## Fluxo de execução
 
@@ -134,8 +135,9 @@ Passos:
    4. `controllers` — orquestração: validar entrada, chamar model/service, montar resposta;
    5. `views/routes` — apenas o mapeamento rota → controller;
    6. `middlewares` — error handler centralizado, validação, CORS e, quando houver
-      finding de AP-11, o middleware de autorização do RF-15 (mecanismo entregue,
-      imposição atrás de flag desligada por padrão);
+      finding de AP-11, o middleware de autorização do RF-15 (imposição ligada
+      por padrão, `AUTH_ENFORCED=false` como válvula de escape para migração;
+      classifique **todas** as rotas, não só as óbvias);
    7. `app` — composition root: monta as dependências e sobe o servidor.
 4. Remova os arquivos legados que foram integralmente substituídos. Não deixe
    código morto nem duplicado no repositório.
@@ -149,9 +151,10 @@ Não declare sucesso sem executar:
 1. **Boot**: subir a aplicação e confirmar que não há erro de import/sintaxe.
 2. **Smoke test dos endpoints**: chamar cada rota do baseline do passo 1 e
    comparar status code e formato de resposta com o comportamento original.
-   Se o RF-15 foi aplicado, rode o smoke test **duas vezes** — com a flag de
-   imposição desligada (contrato idêntico ao baseline) e ligada (rota sensível
-   sem credencial responde 401, e com token do login volta ao status do baseline).
+   Se o RF-15 foi aplicado, rode o smoke test **duas vezes** — no padrão
+   (`AUTH_ENFORCED=true`: rota sensível sem credencial responde 401, e com token
+   do login volta ao status do baseline) e com a válvula de escape ligada
+   (`AUTH_ENFORCED=false`: contrato idêntico ao baseline).
 3. **Varredura final**: reexecutar mentalmente o catálogo de anti-patterns sobre
    o código novo e confirmar que os findings CRITICAL e HIGH foram eliminados.
 

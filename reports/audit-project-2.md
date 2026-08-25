@@ -280,7 +280,7 @@ Arquivos legados `src/AppManager.js` e `src/utils.js` foram removidos.
 | AP-08 | Sem injeção de dependência | HIGH | tudo por construtor; `createApp()` é o único ponto com `new` de infra |
 | AP-09 | Callback hell | HIGH | driver promisificado (`Database`); checkout linear com `await`; matrícula + pagamento + auditoria dentro de `db.transaction()` |
 | AP-10 | Sem abstração de dados | HIGH | 5 models; nenhuma query fora de `models/` e `infra/` |
-| AP-11 | Autorização ausente | HIGH | RF-15: `AuthService` (HMAC-SHA256, `timingSafeEqual`), `POST /api/login` como emissor, `requireAuth` em `GET /api/admin/financial-report` e `DELETE /api/users/:id`; imposição sob `AUTH_ENFORCED` (padrão `false`) |
+| AP-11 | Autorização ausente | HIGH | RF-15: `AuthService` (HMAC-SHA256, `timingSafeEqual`), `POST /api/login` como emissor, `requireAuth` em `GET /api/admin/financial-report` e `DELETE /api/users/:id`; **imposição ligada por padrão** — as duas rotas respondem 401 sem `Bearer` token. `AUTH_ENFORCED=false` restaura o contrato original durante uma migração |
 | AP-12 | Integridade referencial | HIGH | FKs `ON DELETE CASCADE` em `enrollments` e `payments`, `PRAGMA foreign_keys = ON`, exclusão em transação |
 | AP-13 | N+1 | MEDIUM | relatório em 4 queries (`Promise.all` + `IN`) e agrupamento em memória, com ordem determinística por id |
 | AP-14 | Validação mínima | MEDIUM | `middlewares/validators.js` roda antes de qualquer efeito colateral |
@@ -302,11 +302,13 @@ Arquivos legados `src/AppManager.js` e `src/utils.js` foram removidos.
 > **Correção de revisão (AP-11).** Este finding constava aqui como não resolvido,
 > com a justificativa de que exigir autenticação quebraria o contrato. A
 > justificativa estava errada na conclusão: o que faltava era um padrão no
-> playbook. O RF-15 separa **mecanismo** de **imposição** — o mecanismo foi
-> entregue por inteiro e a imposição fica sob `AUTH_ENFORCED`, que nasce
-> desligada. Com a flag desligada o contrato é idêntico ao original e cada acesso
-> anônimo a rota sensível é registrado como `WARN`; com `AUTH_ENFORCED=true` as
-> duas rotas exigem `Bearer` token. Ambos os modos são testados (ver Validação).
+> playbook. O RF-15 entrega o mecanismo (token assinado, middleware,
+> classificação das rotas) e **liga a imposição por padrão** — `GET
+> /api/admin/financial-report` e `DELETE /api/users/:id` respondem 401 sem
+> credencial. O 401 é uma mudança intencional de contrato, declarada na seção
+> abaixo; `AUTH_ENFORCED=false` restaura o comportamento original para quem
+> precisar de uma janela de migração, registrando cada acesso anônimo como
+> `WARN`. Ambos os modos são testados (ver Validação).
 
 ### Mudanças intencionais de contrato
 
@@ -328,6 +330,28 @@ Rota **aditiva** do RF-15: `POST /api/login` passa a existir para emitir a
 credencial que o middleware verifica. Nenhuma rota existente teve path, método,
 corpo ou status alterado por causa dela.
 
+**Mudança de status por autorização (RF-15).** Com a configuração padrão, duas
+rotas passam a responder **401** onde antes respondiam 200:
+
+| Rota | Antes | Agora (padrão) | Com `Bearer` token |
+|---|---|---|---|
+| `GET /api/admin/financial-report` | 200 | 401 | 200 |
+| `DELETE /api/users/:id` | 200 | 401 | 200 |
+
+É a correção do AP-11, não um efeito colateral: eram rotas que respondiam a
+qualquer chamador anônimo. Quem precisar do contrato antigo durante a migração
+sobe com `AUTH_ENFORCED=false` — as duas voltam a 200 e cada acesso anônimo vira
+`WARN` no log.
+
+### Classificação de rotas (RF-15)
+
+| Rota | Classificação | Critério |
+|---|---|---|
+| `GET /api/admin/financial-report` | sensível | agregado do negócio + nome de todos os alunos pagantes |
+| `DELETE /api/users/:id` | sensível | apaga registro de terceiro, em cascata |
+| `POST /api/checkout` | aberta | auto-serviço: o comprador se identifica com e-mail e senha no corpo |
+| `POST /api/login` | aberta | é o emissor da credencial |
+
 ### Validação
 
 Suíte de 9 chamadas HTTP (checkout aprovado, checkout recusado, request
@@ -348,16 +372,16 @@ RELATORIO FINANCEIRO: IDENTICO ao original
 Autorização (RF-15) testada nos dois modos:
 
 ```
-AUTH_ENFORCED=false (padrão)
- 200 GET  /api/admin/financial-report      contrato preservado (+ WARN no log)
- 200 DELETE /api/users/1                   contrato preservado (+ WARN no log)
-
-AUTH_ENFORCED=true
- 401 GET  /api/admin/financial-report      Credencial ausente
+AUTH_ENFORCED=true (padrão)
+ 401 GET    /api/admin/financial-report    Credencial ausente
  401 DELETE /api/users/1                   Credencial ausente
- 200 GET  /api/admin/financial-report      com Bearer token do /api/login
- 401 GET  /api/admin/financial-report      assinatura adulterada → "Assinatura inválida"
- 401 POST /api/login                       senha errada → "Credenciais inválidas"
+ 200 GET    /api/admin/financial-report    com Bearer token do /api/login
+ 401 GET    /api/admin/financial-report    assinatura adulterada → "Assinatura inválida"
+ 404 GET    /api/courses                   rota inexistente segue 404
+
+AUTH_ENFORCED=false (válvula de escape para migração)
+ 200 GET    /api/admin/financial-report    contrato original restaurado (+ WARN no log)
+ 200 DELETE /api/users/1                   contrato original restaurado (+ WARN no log)
 ```
 
 - **Boot:** `npm start` sobe sem erro

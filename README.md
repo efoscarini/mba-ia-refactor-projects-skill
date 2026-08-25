@@ -259,13 +259,22 @@ playbook, o AP-11 era **o único dos 23 anti-patterns sem RF correspondente** �
 skill sabia acusar e não sabia consertar, e a regra do contrato virou o álibi
 perfeito para isso passar despercebido em três execuções seguidas.
 
-A correção tem duas partes. O **RF-15** separa mecanismo de imposição: a
-refatoração entrega token assinado, middleware e classificação das rotas, e deixa
-a imposição atrás de `AUTH_ENFORCED`, que nasce desligada. Com a flag desligada o
-contrato é idêntico ao original — e cada acesso anônimo a rota sensível vira
-`WARN` no log, para o buraco ficar visível em vez de silencioso. Com a flag
-ligada, as rotas exigem `Bearer` token. A validação da Fase 3 passou a rodar o
-smoke test **duas vezes**, uma por modo.
+A correção tem duas partes. O **RF-15** entrega o mecanismo inteiro — token
+assinado, middleware e classificação das rotas — e **liga a imposição por
+padrão**: rota sensível sem credencial responde 401. Esse 401 é uma mudança
+intencional de contrato, declarada rota por rota no relatório, que é a única
+categoria de quebra que a regra nº 2 admite. `AUTH_ENFORCED=false` fica como
+válvula de escape para uma janela de migração: restaura o contrato original e
+transforma cada acesso anônimo em `WARN` no log, para o buraco ficar visível em
+vez de silencioso. A validação da Fase 3 passou a rodar o smoke test **duas
+vezes**, uma por modo.
+
+> Esta parte foi ajustada em uma segunda revisão. A primeira tentativa entregou o
+> mecanismo mas deixou a flag **desligada** por padrão, para não tocar no
+> contrato — e com isso o `GET /api/admin/financial-report` continuava
+> respondendo à chamada anônima depois da Fase 3. Mecanismo pronto e imposição
+> desligada é o finding de pé com uma camada de tinta por cima: se a rota sensível
+> ainda responde a qualquer um, o AP-11 não foi resolvido.
 
 A segunda parte é uma regra nova no `SKILL.md`, porque só o RF não impediria a
 repetição: *"quebraria o contrato" não é alta de finding* — antes de registrar
@@ -273,6 +282,14 @@ qualquer limitação é preciso procurar um padrão compatível no playbook, e u
 CRITICAL/HIGH que sai da Fase 3 sem mudança de código é falha da refatoração, não
 característica dela. Sem essa regra, o próximo anti-pattern sem RF cairia no
 mesmo álibi.
+
+O terceiro aprendizado veio junto: **classificação pela metade é o mesmo que não
+classificar**. A primeira aplicação do RF-15 protegeu `DELETE /users/<id>` e
+deixou `PUT /users/<id>` aberta, protegeu os relatórios e ignorou `/pedidos` e
+`/tasks` inteiros — rotas que atendem exatamente ao mesmo critério. O Passo 1 do
+RF-15 passou a exigir a varredura de **todas** as rotas e a publicação da tabela
+de classificação no relatório, incluindo o que ficou aberto e por quê: é isso que
+torna a decisão revisável.
 
 ---
 
@@ -494,20 +511,28 @@ a variável antes de subir (a config é lida do ambiente — veja
 export SECRET_KEY=... DATABASE_PATH=loja.db     # PowerShell: $env:SECRET_KEY="..."
 ```
 
+As rotas abertas respondem direto; as sensíveis exigem o token do `/login`
+(veja a tabela de classificação em [audit-project-1.md](reports/audit-project-1.md)):
+
 ```bash
 curl http://127.0.0.1:5000/health
 curl http://127.0.0.1:5000/produtos
-curl -X POST http://127.0.0.1:5000/login \
+curl -i http://127.0.0.1:5000/relatorios/vendas    # 401 Credencial ausente
+
+TOKEN=$(curl -s -X POST http://127.0.0.1:5000/login \
      -H "Content-Type: application/json" \
-     -d '{"email":"joao@email.com","senha":"123456"}'
-curl -X POST http://127.0.0.1:5000/pedidos \
+     -d '{"email":"joao@email.com","senha":"123456"}' \
+     | python -c 'import sys,json;print(json.load(sys.stdin)["dados"]["token"])')
+
+curl -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:5000/pedidos \
      -H "Content-Type: application/json" \
      -d '{"usuario_id":2,"itens":[{"produto_id":2,"quantidade":2}]}'
-curl http://127.0.0.1:5000/relatorios/vendas
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/relatorios/vendas
 ```
 
 Sinais de que a refatoração funcionou: `/health` **não** devolve `secret_key`,
-`/usuarios` **não** devolve `senha`, e `/admin/query` responde **404**.
+`/usuarios` **não** devolve `senha`, `/admin/query` responde **404**, e as rotas
+sensíveis respondem **401** sem o header.
 
 **Projeto 2 — Node.js/Express**
 
@@ -529,9 +554,15 @@ cp .env.example .env && node --env-file=.env src/app.js
 curl -X POST http://127.0.0.1:3000/api/checkout \
      -H "Content-Type: application/json" \
      -d '{"usr":"Guilherme","eml":"gui@fullcycle.com.br","pwd":"senhaforte","c_id":2,"card":"4111222233334444"}'
-curl http://127.0.0.1:3000/api/admin/financial-report
-curl -X DELETE http://127.0.0.1:3000/api/users/1
-curl http://127.0.0.1:3000/api/admin/financial-report   # sem alunos "Unknown"
+curl -i http://127.0.0.1:3000/api/admin/financial-report   # 401 Credencial ausente
+
+TOKEN=$(curl -s -X POST http://127.0.0.1:3000/api/login \
+     -H "Content-Type: application/json" \
+     -d '{"email":"gui@fullcycle.com.br","password":"senhaforte"}' | jq -r .token)
+
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/admin/financial-report
+curl -H "Authorization: Bearer $TOKEN" -X DELETE http://127.0.0.1:3000/api/users/1
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/admin/financial-report   # sem alunos "Unknown"
 ```
 
 O arquivo `api.http` continua valendo (VS Code REST Client / JetBrains).
@@ -554,42 +585,56 @@ exige nenhuma variável — veja [.env.example](task-manager-api/.env.example) p
 os nomes (`SECRET_KEY`, `DATABASE_URI`, `SMTP_*`, `NOTIFICATIONS_ENABLED`).
 
 ```bash
-curl http://127.0.0.1:5000/tasks
-curl http://127.0.0.1:5000/tasks/stats
-curl http://127.0.0.1:5000/reports/summary
-curl -X POST http://127.0.0.1:5000/login \
+curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/categories
+curl -i http://127.0.0.1:5000/tasks                # 401 Credencial ausente
+
+TOKEN=$(curl -s -X POST http://127.0.0.1:5000/login \
      -H "Content-Type: application/json" \
-     -d '{"email":"joao@email.com","password":"1234"}'
+     -d '{"email":"joao@email.com","password":"1234"}' \
+     | python -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/tasks
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/tasks/stats
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/reports/summary
 ```
 
 Sinais de que funcionou: nenhuma resposta contém o campo `password`, o `token` do
-login é assinado (não `fake-jwt-token-1`), e uma rota inexistente devolve JSON.
+login é assinado (não `fake-jwt-token-1`), uma rota inexistente devolve JSON, e
+`/tasks` responde **401** sem o header — task tem dono, não é catálogo público.
 
 ### Testando a autorização (RF-15)
 
-Os 3 projetos nascem com `AUTH_ENFORCED=false`, que preserva o contrato original.
-Ligue a flag para ver a proteção agir — as rotas sensíveis passam a exigir
-`Bearer` token e as demais continuam abertas:
+Os 3 projetos nascem com `AUTH_ENFORCED=true`: rota sensível sem `Bearer` token
+responde **401**, e as abertas continuam abertas. É o comportamento padrão, não
+precisa de nenhuma variável:
 
 ```bash
 # Projeto 1
-AUTH_ENFORCED=true python app.py
 curl -i http://127.0.0.1:5000/usuarios                    # 401 Credencial ausente
-TOKEN=$(curl -s -X POST http://127.0.0.1:5000/login -H 'Content-Type: application/json' \
-        -d '{"email":"joao@email.com","senha":"123456"}' | python -c 'import sys,json;print(json.load(sys.stdin)["token"])')
-curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5000/usuarios   # 200
+curl -i http://127.0.0.1:5000/produtos                    # 200 — catálogo é público
 
 # Projeto 2
-AUTH_ENFORCED=true AUTH_SECRET=troque-esta-chave npm start
 curl -i http://127.0.0.1:3000/api/admin/financial-report  # 401 Credencial ausente
 
 # Projeto 3
-AUTH_ENFORCED=true python app.py
 curl -i http://127.0.0.1:5000/reports/summary             # 401 Credencial ausente
+curl -i http://127.0.0.1:5000/categories                  # 200 — taxonomia é pública
 ```
 
-Com a flag desligada, o acesso anônimo a rota sensível continua respondendo 200 —
-mas aparece no log como `WARN ... Rota sensível acessada sem credencial`.
+Cada projeto tem a tabela completa de classificação — o que é sensível, o que
+ficou aberto e por quê — na seção *Classificação de rotas* do seu relatório.
+
+Para a janela de migração, `AUTH_ENFORCED=false` restaura o contrato original:
+
+```bash
+AUTH_ENFORCED=false python app.py
+curl -i http://127.0.0.1:5000/usuarios                    # 200, como no código legado
+```
+
+Nesse modo o acesso anônimo a rota sensível volta a responder 200 — mas aparece
+no log como `WARN ... Rota sensível acessada sem credencial`, para o buraco ficar
+visível em vez de silencioso.
 
 ### Estrutura do repositório
 

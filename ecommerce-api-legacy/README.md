@@ -37,10 +37,26 @@ src/
 
 ## Endpoints
 
-`POST /api/checkout` · `GET /api/admin/financial-report` ·
-`DELETE /api/users/:id`
+`POST /api/checkout` · `POST /api/login` ·
+`GET /api/admin/financial-report` 🔒 · `DELETE /api/users/:id` 🔒
 
 Exemplos de requisição em `api.http`.
+
+🔒 = exige `Authorization: Bearer <token>`. O token vem de `POST /api/login`
+(`{"email", "password"}`) e vale `AUTH_TOKEN_TTL` segundos:
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"leonan@fullcycle.com.br","password":"..."}' | jq -r .token)
+curl -s http://127.0.0.1:3000/api/admin/financial-report -H "Authorization: Bearer $TOKEN"
+```
+
+A imposição vem ligada (`AUTH_ENFORCED=true`): sem o header essas duas rotas
+respondem 401. Suba com `AUTH_ENFORCED=false` para restaurar o contrato original
+durante uma migração — o acesso anônimo passa a ser registrado como `WARN`.
+Sem `AUTH_SECRET` no ambiente, o boot gera uma chave efêmera e os tokens não
+sobrevivem a um restart.
 
 Na refatoração: matrículas e pagamentos passaram a ser removidos em cascata junto
 com o usuário, e o número do cartão é mascarado no log. Ver

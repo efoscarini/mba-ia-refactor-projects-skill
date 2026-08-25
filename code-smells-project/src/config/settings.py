@@ -29,7 +29,7 @@ class Settings:
 
         # RF-15: o middleware de autorização é sempre montado; só a imposição é
         # opcional. Desligada por padrão para preservar o contrato das rotas.
-        self.AUTH_ENFORCED = _as_bool(env.get("AUTH_ENFORCED"), default=False)
+        self.AUTH_ENFORCED = _as_bool(env.get("AUTH_ENFORCED"), default=True)
         self.TOKEN_MAX_AGE = int(env.get("AUTH_TOKEN_TTL", "3600"))
         self.SECRET_KEY = self._resolver_secret_key(env.get("SECRET_KEY", ""))
 

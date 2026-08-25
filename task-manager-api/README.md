@@ -43,11 +43,17 @@ src/
 
 ## Endpoints
 
-`GET /` · `GET /health` · `GET|POST /tasks` · `GET /tasks/search` ·
-`GET /tasks/stats` · `GET|PUT|DELETE /tasks/<id>` · `GET|POST /users` ·
-`GET|PUT|DELETE /users/<id>` · `GET /users/<id>/tasks` · `POST /login` ·
-`GET /reports/summary` · `GET /reports/user/<id>` · `GET|POST /categories` ·
-`PUT|DELETE /categories/<id>`
+`GET /` · `GET /health` · `GET|POST /tasks` 🔒 · `GET /tasks/search` 🔒 ·
+`GET /tasks/stats` 🔒 · `GET|PUT|DELETE /tasks/<id>` 🔒 · `POST /users` ·
+`GET /users` 🔒 · `GET|PUT|DELETE /users/<id>` 🔒 · `GET /users/<id>/tasks` 🔒 ·
+`POST /login` · `GET /reports/summary` 🔒 · `GET /reports/user/<id>` 🔒 ·
+`GET /categories` · `POST /categories` 🔒 · `PUT|DELETE /categories/<id>` 🔒
+
+🔒 = exige `Authorization: Bearer <token>`, obtido em `POST /login`. A imposição
+vem ligada (`AUTH_ENFORCED=true`); suba com `AUTH_ENFORCED=false` para restaurar
+o contrato original durante uma migração — o acesso anônimo vira `WARN` no log.
+Task tem dono (`user_id`), por isso `/tasks` é tratado como dado de usuário e não
+como catálogo público.
 
 Na refatoração: o campo `password` saiu de todas as respostas, o hash passou a
 ser pbkdf2 com salt e o token do login é assinado de verdade. Ver

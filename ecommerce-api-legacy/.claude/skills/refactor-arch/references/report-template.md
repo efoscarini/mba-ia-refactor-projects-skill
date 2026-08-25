@@ -88,9 +88,24 @@ Depois da refatoração, acrescente ao mesmo arquivo:
 
 (ou "Nenhum — todos os findings foram resolvidos.")
 
+### Mudanças intencionais de contrato
+Uma entrada por mudança, com a rota afetada e o motivo. Quando o RF-15 for
+aplicado, o 401 das rotas sensíveis entra aqui — rota por rota, com o nome da
+variável que restaura o contrato original.
+
+### Classificação de rotas (só quando o RF-15 for aplicado)
+| Rota | Classificação | Critério |
+|---|---|---|
+| GET /exemplo | sensível | agregado do negócio |
+| GET /health | aberta | health check |
+
+A tabela cobre **todas** as rotas, inclusive as abertas — é o que permite revisar
+a decisão.
+
 ### Validação
 - Boot: <resultado>
 - Endpoints: <N>/<N> respondendo conforme o contrato
+- Autorização (RF-15): resultado nos dois modos, `AUTH_ENFORCED` true e false
 - Varredura final: <CRITICAL/HIGH remanescentes>
 ```
 

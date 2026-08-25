@@ -37,10 +37,16 @@ src/
 
 ## Endpoints
 
-`GET /` · `GET /health` · `GET|POST /produtos` · `GET /produtos/busca` ·
-`GET|PUT|DELETE /produtos/<id>` · `GET|POST /usuarios` · `GET /usuarios/<id>` ·
-`POST /login` · `GET|POST /pedidos` · `GET /pedidos/usuario/<id>` ·
-`PUT /pedidos/<id>/status` · `GET /relatorios/vendas`
+`GET /` · `GET /health` · `GET /produtos` · `GET /produtos/busca` ·
+`GET /produtos/<id>` · `POST /produtos` 🔒 · `PUT|DELETE /produtos/<id>` 🔒 ·
+`POST /usuarios` · `GET /usuarios` 🔒 · `GET /usuarios/<id>` 🔒 · `POST /login` ·
+`GET|POST /pedidos` 🔒 · `GET /pedidos/usuario/<id>` 🔒 ·
+`PUT /pedidos/<id>/status` 🔒 · `GET /relatorios/vendas` 🔒
+
+🔒 = exige `Authorization: Bearer <token>`, obtido em `POST /login`. A imposição
+vem ligada (`AUTH_ENFORCED=true`); suba com `AUTH_ENFORCED=false` para restaurar
+o contrato original durante uma migração — o acesso anônimo vira `WARN` no log.
+O catálogo continua de leitura pública; só a escrita nele exige credencial.
 
 As rotas `/admin/query` e `/admin/reset-db` foram removidas na refatoração —
 executavam SQL arbitrário e apagavam o banco, sem autenticação. Ver

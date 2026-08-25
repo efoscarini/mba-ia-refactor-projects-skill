@@ -1,9 +1,11 @@
 """Autorização em rota sensível (RF-15, resolve AP-11).
 
-O mecanismo é entregue por inteiro, mas a imposição fica atrás de
-`AUTH_ENFORCED`, que nasce desligada — assim o contrato das rotas atuais
-continua idêntico ao do código original. Com a flag desligada, cada acesso
-anônimo a rota sensível vira log de aviso, para o buraco não ficar silencioso.
+A imposição nasce **ligada**: rota sensível sem credencial responde 401. É uma
+mudança intencional de contrato, declarada no relatório de auditoria.
+
+`AUTH_ENFORCED=false` é a válvula de escape para uma janela de migração —
+restaura o contrato original e transforma cada acesso anônimo a rota sensível em
+log de aviso, para o buraco ficar visível em vez de silencioso.
 """
 import logging
 from functools import wraps
@@ -34,7 +36,7 @@ def construir_require_auth(settings, auth_service):
                 if not token:
                     logger.warning(
                         "Rota sensível acessada sem credencial: %s %s "
-                        "(AUTH_ENFORCED=false — defina como true para bloquear)",
+                        "(AUTH_ENFORCED=false — imposição desligada por configuração)",
                         request.method,
                         request.path,
                     )

@@ -284,7 +284,7 @@ da raiz foram removidos.
 | AP-06 | Regra nas rotas | HIGH | `TaskService`, `UserService`, `CategoryService` e `ReportService`; o `summary_report` de 90 linhas virou 1 linha de controller |
 | AP-04 | Sem controllers | HIGH | 5 controllers + 5 arquivos de rota; CRUD de categorias saiu de `report_routes.py` para o seu próprio módulo |
 | AP-10 | Acesso a dados espalhado | HIGH | todas as consultas concentradas nos models; zero `db.session`/`db.select` em controllers e views |
-| AP-11 | Token falso e rota desprotegida | HIGH | token assinado com `itsdangerous` (`URLSafeTimedSerializer` + `SECRET_KEY`), mesmo formato de resposta; RF-15 extraiu o `AuthService` (emite **e** verifica) e pôs `require_auth` em `GET /users`, `DELETE /users/<id>`, `/reports/summary` e `/reports/user/<id>`; imposição sob `AUTH_ENFORCED` (padrão `false`) |
+| AP-11 | Token falso e rota desprotegida | HIGH | token assinado com `itsdangerous` (`URLSafeTimedSerializer` + `SECRET_KEY`), mesmo formato de resposta; RF-15 extraiu o `AuthService` (emite **e** verifica) e pôs `require_auth` nas 17 rotas sensíveis (usuários, todo `/tasks`, relatórios e a escrita em `/categories`); **imposição ligada por padrão** — sem `Bearer` token elas respondem 401. `AUTH_ENFORCED=false` restaura o contrato original durante uma migração |
 | AP-07 | Estado em memória | HIGH | lista `self.notifications` removida; o registro vai para o log |
 | AP-08 | Acoplamento / serviço morto | HIGH | dependências por construtor; `NotificationService` recebe `settings` e passou a ser chamado pelo `TaskService` na atribuição de task |
 | AP-13 | N+1 | MEDIUM | `GET /tasks` em 3 queries; `GET /users` e `GET /categories` com `COUNT` agregado por `GROUP BY`; `summary` agrupa em memória a lista já carregada |
@@ -315,10 +315,17 @@ eliminando a chamada deprecated sem migrar o schema.
 > era assinado, mas nenhuma rota o verificava — o emissor existia sem
 > verificador. A justificativa de "quebraria o contrato" mascarava a ausência de
 > padrão no playbook. O RF-15 extraiu o `AuthService` (que agora emite **e**
-> verifica) e protegeu as 4 rotas sensíveis. Com `AUTH_ENFORCED=false` (padrão) o
-> contrato é idêntico e o acesso anônimo vira `WARN`; com `AUTH_ENFORCED=true`
-> elas exigem `Bearer` token. As rotas abertas (`/tasks`, `/categories`,
-> `/health`) seguem abertas nos dois modos.
+> verifica) e protegeu as **17 rotas sensíveis**, com a imposição **ligada por
+> padrão**. O 401 é uma mudança intencional de contrato, declarada na seção
+> abaixo; `AUTH_ENFORCED=false` restaura o comportamento original para uma janela
+> de migração, registrando cada acesso anônimo como `WARN`.
+>
+> A revisão também corrigiu a **classificação**, que estava inconsistente: a
+> primeira passada protegeu `DELETE /users/<id>` mas deixou `PUT /users/<id>`
+> aberta, e ignorou `/tasks` inteiro — task tem `user_id`, então listar, buscar e
+> agregar expõem dado de outro usuário exatamente como os relatórios. Proteger
+> metade das rotas que atendem ao mesmo critério deixa o finding meio resolvido,
+> que é o mesmo que não resolvido.
 
 ### Mudanças intencionais de contrato
 
@@ -333,10 +340,39 @@ Mudança de valor, não de formato: o campo `token` do login deixou de ser
 `fake-jwt-token-<id>` e passou a ser um token assinado — continua sendo uma
 string, mesma chave, mesmo status.
 
+**Mudança de status por autorização (RF-15).** Com a configuração padrão, 17
+rotas passam a responder **401** onde antes respondiam 200. Com `Bearer` token do
+`/login`, todas voltam ao status do baseline:
+
+`GET /users` · `GET|PUT|DELETE /users/<id>` · `GET /users/<id>/tasks` ·
+`GET|POST /tasks` · `GET /tasks/search` · `GET /tasks/stats` ·
+`GET|PUT|DELETE /tasks/<id>` · `GET /reports/summary` · `GET /reports/user/<id>` ·
+`POST /categories` · `PUT|DELETE /categories/<id>`
+
+É a correção do AP-11, não um efeito colateral. Quem precisar do contrato antigo
+durante a migração sobe com `AUTH_ENFORCED=false`.
+
+### Classificação de rotas (RF-15)
+
+| Rota | Classificação | Critério |
+|---|---|---|
+| `GET /users` | sensível | lista toda a base de usuários |
+| `GET|PUT|DELETE /users/<id>` | sensível | lê e escreve registro de terceiro |
+| `GET /users/<id>/tasks` | sensível | lê dado de outro usuário |
+| `/tasks` e `/tasks/<id>` (todos os métodos) | sensível | task tem `user_id`: listar e agregar expõem dado alheio, escrever mexe em registro de terceiro |
+| `GET /tasks/search`, `GET /tasks/stats` | sensível | busca e agregado sobre a base inteira |
+| `GET /reports/summary`, `GET /reports/user/<id>` | sensível | agregados do negócio |
+| `POST`/`PUT`/`DELETE /categories` | sensível | escrita em taxonomia é administrativa |
+| `GET /categories` | aberta | taxonomia é leitura pública, como catálogo |
+| `POST /users` | aberta | auto-serviço: cadastro |
+| `POST /login` | aberta | é o emissor da credencial |
+| `GET /`, `GET /health` | aberta | raiz e health check |
+
 ### Validação
 
 Suíte de 50 chamadas HTTP cobrindo as 22 rotas — caminho feliz, todos os erros de
-validação, 404, 409 e 401:
+validação, 404, 409 e 401. A comparação de contrato roda com
+`AUTH_ENFORCED=false`, que é o modo que preserva o baseline:
 
 ```
 casos=50  status_iguais=50  status_diferentes=0  body_diferentes=5
@@ -345,18 +381,20 @@ casos=50  status_iguais=50  status_diferentes=0  body_diferentes=5
 Autorização (RF-15) testada nos dois modos:
 
 ```
-AUTH_ENFORCED=false (padrão)
- 200 GET /users | /reports/summary | /reports/user/1 | DELETE /users/3   contrato preservado (+ WARN)
-
-AUTH_ENFORCED=true
- 401 as mesmas 4 rotas sem header                        Credencial ausente
- 200 as mesmas rotas com Bearer token do /login
+AUTH_ENFORCED=true (padrão)
+ 401 17/17 rotas sensíveis sem header                    Credencial ausente
+ 200 17/17 as mesmas com Bearer token do /login          voltam ao status do baseline
  401 GET /users com assinatura adulterada                "Token inválido"
- 200 /health, /tasks, /tasks/stats, /categories          rotas abertas seguem abertas
+ 200 /, /health, /categories                             rotas abertas seguem abertas
+
+AUTH_ENFORCED=false (válvula de escape para migração)
+ 200 0/17 rotas sensíveis respondem 401                  contrato original restaurado (+ WARN)
+ 200 as mesmas 3 rotas abertas                           inalteradas
 ```
 
 - **Boot:** `python seed.py` e `python app.py` executam sem erro
-- **Endpoints:** 50/50 status codes idênticos ao original
+- **Endpoints:** 50/50 status codes idênticos ao original no modo de contrato; no
+  modo padrão somam-se os 17 401 declarados acima
 - **Formato:** 5 divergências de corpo — 4 são a remoção do `password` e 1 é o
   404 em JSON; nenhuma regressão
 - **Varredura final:** zero anti-patterns CRITICAL ou HIGH remanescentes, e zero

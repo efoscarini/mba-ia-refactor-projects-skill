@@ -68,9 +68,9 @@ def create_app(settings: Settings = None):
 
     # --- rotas ---
     require_auth = construir_require_auth(settings, auth_service)
-    app.register_blueprint(task_routes.criar_blueprint(task_controller))
+    app.register_blueprint(task_routes.criar_blueprint(task_controller, require_auth))
     app.register_blueprint(user_routes.criar_blueprint(user_controller, require_auth))
-    app.register_blueprint(category_routes.criar_blueprint(category_controller))
+    app.register_blueprint(category_routes.criar_blueprint(category_controller, require_auth))
     app.register_blueprint(report_routes.criar_blueprint(report_controller, require_auth))
     app.register_blueprint(system_routes.criar_blueprint(system_controller))
 

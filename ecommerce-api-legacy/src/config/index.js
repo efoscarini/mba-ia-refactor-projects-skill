@@ -43,9 +43,10 @@ const config = {
         password: required('SMTP_PASSWORD', env.SMTP_PASSWORD, isProduction),
     },
     auth: {
-        // RF-15: o mecanismo de autorização é sempre montado; só a imposição é
-        // opcional. Desligada por padrão para preservar o contrato das rotas.
-        enforced: asBool(env.AUTH_ENFORCED, false),
+        // RF-15: imposição ligada por padrão — rota sensível sem credencial
+        // responde 401 (mudança intencional de contrato, declarada no relatório).
+        // `AUTH_ENFORCED=false` restaura o contrato original durante a migração.
+        enforced: asBool(env.AUTH_ENFORCED, true),
         secret: env.AUTH_SECRET || required('AUTH_SECRET', env.AUTH_SECRET, isProduction)
             || crypto.randomBytes(32).toString('hex'),
         tokenTtlSeconds: Number(env.AUTH_TOKEN_TTL || DEFAULT_TOKEN_TTL_SECONDS),

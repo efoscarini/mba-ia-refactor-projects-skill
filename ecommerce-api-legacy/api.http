@@ -24,8 +24,23 @@ Content-Type: application/json
   "card": "5111222233334444"
 }
 
-### Relatório financeiro administrativo
-GET {{baseUrl}}/api/admin/financial-report
+### Login - emite o token das rotas sensíveis
+# @name login
+POST {{baseUrl}}/api/login
+Content-Type: application/json
 
-### Deletar usuário
+{
+  "email": "gui@fullcycle.com.br",
+  "password": "senhaforte"
+}
+
+### Relatório financeiro administrativo (sensível)
+GET {{baseUrl}}/api/admin/financial-report
+Authorization: Bearer {{login.response.body.token}}
+
+### Deletar usuário (sensível)
 DELETE {{baseUrl}}/api/users/1
+Authorization: Bearer {{login.response.body.token}}
+
+### Relatório sem credencial -> 401 (com AUTH_ENFORCED=true, o padrão)
+GET {{baseUrl}}/api/admin/financial-report
